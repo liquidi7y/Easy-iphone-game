@@ -17,6 +17,7 @@ from rich.layout import Layout
 from rich import box
 
 from .bot import PolymarketSentinelBot, BotConfig
+from .btc_bot import BTCArbitrageBot, BTCBotConfig
 from config import get_settings
 
 app = typer.Typer(
@@ -24,6 +25,10 @@ app = typer.Typer(
     help="Polymarket Sentinel - AI-powered betting bot with sentiment analysis and whale tracking",
     add_completion=False,
 )
+
+# Sub-app for BTC strategy
+btc_app = typer.Typer(help="BTC latency arbitrage strategy commands")
+app.add_typer(btc_app, name="btc")
 
 console = Console()
 
@@ -380,6 +385,219 @@ def version():
     """Show version information"""
     from . import __version__
     console.print(f"Polymarket Sentinel v{__version__}")
+
+
+# ============ BTC ARBITRAGE COMMANDS ============
+
+def print_btc_banner():
+    """Print BTC bot banner"""
+    banner = """
+    ╔═══════════════════════════════════════════════════════════╗
+    ║          BTC LATENCY ARBITRAGE BOT                        ║
+    ║   Exploiting Binance/Polymarket Price Delays              ║
+    ╚═══════════════════════════════════════════════════════════╝
+    """
+    console.print(banner, style="bold yellow")
+
+
+@btc_app.command("run")
+def btc_run(
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--live",
+        help="Run in dry-run mode (no real trades)"
+    ),
+    capital: float = typer.Option(
+        1000.0,
+        "--capital", "-c",
+        help="Starting capital in USDC"
+    ),
+    max_position: float = typer.Option(
+        200.0,
+        "--max-position", "-m",
+        help="Maximum position size per trade"
+    ),
+    poll_ms: int = typer.Option(
+        1000,
+        "--poll-ms", "-p",
+        help="Polling interval in milliseconds"
+    ),
+):
+    """
+    Run the BTC latency arbitrage bot
+
+    This bot exploits the delay between Binance BTC price updates
+    and Polymarket odds adjustments. It monitors real-time BTC
+    prices and buys positions when odds are stale.
+
+    Example:
+        polysentinel btc run --dry-run --capital 500
+        polysentinel btc run --live --max-position 100
+    """
+    print_btc_banner()
+
+    if not dry_run:
+        console.print("[bold red]WARNING: Running in LIVE mode![/bold red]")
+        console.print("[red]This strategy executes trades automatically based on price latency.[/red]")
+        if not typer.confirm("Are you sure you want to continue?"):
+            raise typer.Abort()
+
+    config = BTCBotConfig(
+        dry_run=dry_run,
+        max_capital=Decimal(str(capital)),
+        max_position_size=Decimal(str(max_position)),
+        poll_interval_ms=poll_ms,
+    )
+
+    console.print(f"\n[yellow]Starting BTC Arbitrage Bot...[/yellow]")
+    console.print(f"  Mode: {'DRY RUN' if dry_run else '[red]LIVE[/red]'}")
+    console.print(f"  Capital: ${capital:,.2f}")
+    console.print(f"  Max Position: ${max_position:,.2f}")
+    console.print(f"  Poll Interval: {poll_ms}ms")
+    console.print()
+
+    bot = BTCArbitrageBot(config=config)
+
+    async def run_bot():
+        try:
+            await bot.start()
+            while bot.is_running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Shutting down...[/yellow]")
+        finally:
+            await bot.stop()
+
+    asyncio.run(run_bot())
+
+
+@btc_app.command("status")
+def btc_status():
+    """
+    Show BTC strategy status and statistics
+
+    Example:
+        polysentinel btc status
+    """
+    print_btc_banner()
+
+    console.print("[cyan]BTC Arbitrage Strategy Configuration[/cyan]")
+    console.print()
+
+    table = Table(title="Strategy Parameters", box=box.ROUNDED)
+    table.add_column("Parameter", style="cyan")
+    table.add_column("Value", style="green")
+
+    from .strategies import BTCArbitrageConfig
+    config = BTCArbitrageConfig()
+
+    table.add_row("Min Price Move", f"{config.min_price_move_pct}%")
+    table.add_row("Max Price Move", f"{config.max_price_move_pct}%")
+    table.add_row("Price Window", f"{config.price_window_seconds}s")
+    table.add_row("Min Odds Edge", f"${config.min_odds_edge:.2f}")
+    table.add_row("Max Hold Time", f"{config.max_hold_seconds}s")
+    table.add_row("Stop Loss", f"{config.stop_loss_pct:.0%}")
+    table.add_row("Take Profit", f"{config.take_profit_pct:.0%}")
+
+    console.print(table)
+
+    console.print("\n[yellow]How it works:[/yellow]")
+    console.print("  1. Monitors BTC/USDT on Binance via WebSocket (real-time)")
+    console.print("  2. Detects significant price movements (>0.3%)")
+    console.print("  3. Checks Polymarket BTC markets for stale odds")
+    console.print("  4. Buys positions reflecting what ALREADY happened")
+    console.print("  5. Exits when odds catch up (30-60 seconds)")
+
+
+@btc_app.command("markets")
+def btc_markets():
+    """
+    List BTC-related Polymarket markets
+
+    Example:
+        polysentinel btc markets
+    """
+    print_btc_banner()
+
+    from .api import PolymarketClient
+    from .strategies import BTCArbitrageConfig
+
+    config = BTCArbitrageConfig()
+
+    async def fetch_btc_markets():
+        async with PolymarketClient() as client:
+            all_markets = await client.get_markets(active_only=True, limit=200)
+
+            # Filter for BTC markets
+            btc_markets = []
+            for m in all_markets:
+                question_lower = m.question.lower()
+                if any(kw in question_lower for kw in config.btc_market_keywords):
+                    btc_markets.append(m)
+
+            if not btc_markets:
+                console.print("[yellow]No BTC-related markets found[/yellow]")
+                return
+
+            table = Table(title="BTC-Related Markets", box=box.ROUNDED)
+            table.add_column("#", style="dim", width=3)
+            table.add_column("Question", style="cyan", max_width=55)
+            table.add_column("YES", justify="right", style="green")
+            table.add_column("Volume", justify="right")
+
+            for i, m in enumerate(btc_markets, 1):
+                table.add_row(
+                    str(i),
+                    m.question[:55] + "..." if len(m.question) > 55 else m.question,
+                    f"{m.yes_price:.1%}",
+                    f"${m.volume_24h:,.0f}",
+                )
+
+            console.print(table)
+            console.print(f"\n[dim]Found {len(btc_markets)} BTC-related markets[/dim]")
+
+    asyncio.run(fetch_btc_markets())
+
+
+@btc_app.command("price")
+def btc_price():
+    """
+    Show current BTC price from Binance
+
+    Example:
+        polysentinel btc price
+    """
+    import httpx
+
+    async def fetch_price():
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.binance.com/api/v3/ticker/24hr",
+                params={"symbol": "BTCUSDT"}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                price = float(data["lastPrice"])
+                change_24h = float(data["priceChangePercent"])
+                high_24h = float(data["highPrice"])
+                low_24h = float(data["lowPrice"])
+                volume = float(data["volume"])
+
+                change_color = "green" if change_24h >= 0 else "red"
+
+                console.print(Panel(
+                    f"[bold]${price:,.2f}[/bold]\n\n"
+                    f"24h Change: [{change_color}]{change_24h:+.2f}%[/{change_color}]\n"
+                    f"24h High: ${high_24h:,.2f}\n"
+                    f"24h Low: ${low_24h:,.2f}\n"
+                    f"24h Volume: {volume:,.2f} BTC",
+                    title="BTC/USDT (Binance)",
+                    border_style="yellow"
+                ))
+            else:
+                console.print("[red]Failed to fetch BTC price[/red]")
+
+    asyncio.run(fetch_price())
 
 
 def main():

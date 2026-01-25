@@ -38,6 +38,33 @@ services:
           cpus: '0.25'
           memory: 256M
 
+  # ============ BTC Arbitrage Bot Service ============
+  btc-arbitrage:
+    build:
+      context: .
+      target: production
+    container_name: polymarket-btc-arbitrage
+    profiles:
+      - btc
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DRY_RUN=${DRY_RUN:-true}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    networks:
+      - sentinel-network
+    command: ["python", "-m", "src.cli", "btc", "run", "--dry-run", "--poll-ms", "1000"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'  # More CPU for speed
+          memory: 1G
+
   # ============ Development Service ============
   polysentinel-dev:
     build:

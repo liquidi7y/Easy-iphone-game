@@ -1,7 +1,7 @@
 # Polymarket Sentinel Bot - Makefile
 # Convenient commands for development and deployment
 
-.PHONY: help install dev run run-live docker-build docker-run docker-stop test lint clean
+.PHONY: help install dev run run-live btc btc-live docker-build docker-run docker-stop test lint clean
 
 # Default target
 help:
@@ -10,12 +10,23 @@ help:
 	@echo "Usage:"
 	@echo "  make install      Install dependencies"
 	@echo "  make dev          Install with dev dependencies"
-	@echo "  make run          Run bot in dry-run mode"
-	@echo "  make run-live     Run bot in live mode (CAUTION)"
+	@echo ""
+	@echo "Sentiment Strategy (default):"
+	@echo "  make run          Run sentiment bot in dry-run mode"
+	@echo "  make run-live     Run sentiment bot in live mode"
+	@echo ""
+	@echo "BTC Arbitrage Strategy:"
+	@echo "  make btc          Run BTC arbitrage bot in dry-run mode"
+	@echo "  make btc-live     Run BTC arbitrage bot in live mode"
+	@echo "  make btc-price    Show current BTC price"
+	@echo ""
+	@echo "Docker:"
 	@echo "  make docker-build Build Docker image"
 	@echo "  make docker-run   Run in Docker (dry-run)"
-	@echo "  make docker-live  Run in Docker (live mode)"
+	@echo "  make docker-btc   Run BTC bot in Docker"
 	@echo "  make docker-stop  Stop Docker containers"
+	@echo ""
+	@echo "Development:"
 	@echo "  make test         Run tests"
 	@echo "  make lint         Run linters"
 	@echo "  make clean        Clean build artifacts"
@@ -28,7 +39,7 @@ install:
 dev:
 	pip install -e ".[dev]"
 
-# ============ Running ============
+# ============ Running Sentiment Bot ============
 
 run:
 	python -m src.cli run --dry-run
@@ -43,6 +54,25 @@ status:
 
 markets:
 	python -m src.cli markets --limit 30
+
+# ============ Running BTC Arbitrage Bot ============
+
+btc:
+	python -m src.cli btc run --dry-run
+
+btc-live:
+	@echo "WARNING: BTC arbitrage will execute trades automatically!"
+	@read -p "Are you sure? (y/N) " confirm && [ "$$confirm" = "y" ]
+	python -m src.cli btc run --live
+
+btc-price:
+	python -m src.cli btc price
+
+btc-markets:
+	python -m src.cli btc markets
+
+btc-status:
+	python -m src.cli btc status
 
 # ============ Docker ============
 
