@@ -38,6 +38,36 @@ services:
           cpus: '0.25'
           memory: 256M
 
+  # ============ Combined Bot Service (RECOMMENDED) ============
+  combined:
+    build:
+      context: .
+      target: production
+    container_name: polymarket-combined
+    profiles:
+      - combined
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DRY_RUN=${DRY_RUN:-true}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    networks:
+      - sentinel-network
+    command: ["python", "-m", "src.cli", "combined", "--dry-run", "--capital", "1000"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
   # ============ BTC Arbitrage Bot Service ============
   btc-arbitrage:
     build:

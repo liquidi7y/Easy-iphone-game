@@ -18,6 +18,7 @@ from rich import box
 
 from .bot import PolymarketSentinelBot, BotConfig
 from .btc_bot import BTCArbitrageBot, BTCBotConfig
+from .combined_bot import CombinedBot, CombinedBotConfig
 from config import get_settings
 
 app = typer.Typer(
@@ -108,6 +109,90 @@ def run(
             console.print("\n[yellow]Shutting down...[/yellow]")
         finally:
             await bot.stop()
+
+    asyncio.run(run_bot())
+
+
+@app.command()
+def combined(
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--live",
+        help="Run in dry-run mode (no real trades)"
+    ),
+    capital: float = typer.Option(
+        1000.0,
+        "--capital", "-c",
+        help="Total capital in USDC"
+    ),
+    sentiment_pct: float = typer.Option(
+        0.60,
+        "--sentiment-pct", "-s",
+        help="Percentage of capital for sentiment strategy (0.0-1.0)"
+    ),
+):
+    """
+    Run BOTH strategies simultaneously
+
+    Splits capital between:
+    - Sentiment Bot (60% default): Twitter + whale tracking
+    - BTC Arbitrage (40% default): Latency exploitation
+
+    Example:
+        polysentinel combined --dry-run --capital 2000
+        polysentinel combined --live --sentiment-pct 0.50
+    """
+    banner = """
+    ╔═══════════════════════════════════════════════════════════╗
+    ║          POLYMARKET COMBINED BOT                          ║
+    ║   Sentiment + BTC Arbitrage Running Together              ║
+    ╚═══════════════════════════════════════════════════════════╝
+    """
+    console.print(banner, style="bold magenta")
+
+    if not dry_run:
+        console.print("[bold red]WARNING: Running in LIVE mode![/bold red]")
+        console.print("[red]Both strategies will execute real trades![/red]")
+        if not typer.confirm("Are you sure you want to continue?"):
+            raise typer.Abort()
+
+    btc_pct = 1.0 - sentiment_pct
+    sentiment_capital = capital * sentiment_pct
+    btc_capital = capital * btc_pct
+
+    config = CombinedBotConfig(
+        total_capital=Decimal(str(capital)),
+        sentiment_allocation=Decimal(str(sentiment_pct)),
+        btc_allocation=Decimal(str(btc_pct)),
+        dry_run=dry_run,
+    )
+
+    console.print(f"\n[magenta]Starting Combined Bot...[/magenta]")
+    console.print(f"  Mode: {'DRY RUN' if dry_run else '[red]LIVE[/red]'}")
+    console.print(f"  Total Capital: ${capital:,.2f}")
+    console.print()
+    console.print(f"  [cyan]Sentiment Strategy:[/cyan] ${sentiment_capital:,.2f} ({sentiment_pct:.0%})")
+    console.print(f"    - Twitter sentiment analysis")
+    console.print(f"    - Whale wallet tracking")
+    console.print(f"    - Poll interval: 60s")
+    console.print()
+    console.print(f"  [yellow]BTC Arbitrage:[/yellow] ${btc_capital:,.2f} ({btc_pct:.0%})")
+    console.print(f"    - Binance WebSocket feed")
+    console.print(f"    - Latency exploitation")
+    console.print(f"    - Poll interval: 1s")
+    console.print()
+
+    bot = CombinedBot(config=config)
+
+    async def run_bot():
+        try:
+            await bot.start()
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Shutting down both bots...[/yellow]")
+        finally:
+            await bot.stop()
+            status = bot.get_combined_status()
+            console.print(f"\n[dim]Total trades: {status.get('total_trades', 0)}[/dim]")
 
     asyncio.run(run_bot())
 

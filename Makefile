@@ -1,7 +1,7 @@
 # Polymarket Sentinel Bot - Makefile
 # Convenient commands for development and deployment
 
-.PHONY: help install dev run run-live btc btc-live docker-build docker-run docker-stop test lint clean
+.PHONY: help install dev run run-live btc btc-live both both-live docker-build docker-run docker-stop test lint clean
 
 # Default target
 help:
@@ -11,7 +11,12 @@ help:
 	@echo "  make install      Install dependencies"
 	@echo "  make dev          Install with dev dependencies"
 	@echo ""
-	@echo "Sentiment Strategy (default):"
+	@echo "=== COMBINED (Recommended) ==="
+	@echo "  make both         Run BOTH strategies in dry-run mode"
+	@echo "  make both-live    Run BOTH strategies in live mode"
+	@echo ""
+	@echo "=== Individual Strategies ==="
+	@echo "Sentiment Strategy:"
 	@echo "  make run          Run sentiment bot in dry-run mode"
 	@echo "  make run-live     Run sentiment bot in live mode"
 	@echo ""
@@ -23,7 +28,7 @@ help:
 	@echo "Docker:"
 	@echo "  make docker-build Build Docker image"
 	@echo "  make docker-run   Run in Docker (dry-run)"
-	@echo "  make docker-btc   Run BTC bot in Docker"
+	@echo "  make docker-both  Run both strategies in Docker"
 	@echo "  make docker-stop  Stop Docker containers"
 	@echo ""
 	@echo "Development:"
@@ -38,6 +43,16 @@ install:
 
 dev:
 	pip install -e ".[dev]"
+
+# ============ Running BOTH Strategies (Recommended) ============
+
+both:
+	python -m src.cli combined --dry-run
+
+both-live:
+	@echo "WARNING: This will execute real trades on BOTH strategies!"
+	@read -p "Are you sure? (y/N) " confirm && [ "$$confirm" = "y" ]
+	python -m src.cli combined --live
 
 # ============ Running Sentiment Bot ============
 
