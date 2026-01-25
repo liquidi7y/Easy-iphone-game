@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # ============ Main Bot Service ============
+  polysentinel:
+    build:
+      context: .
+      target: production
+    container_name: polymarket-sentinel
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DRY_RUN=${DRY_RUN:-true}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-60}
+    volumes:
+      # Persist logs and trade data
+      - ./logs:/app/logs
+      - ./data:/app/data
+      # Mount .env file
+      - ./.env:/app/.env:ro
+    networks:
+      - sentinel-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Resource limits for stability
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ============ Development Service ============
+  polysentinel-dev:
+    build:
+      context: .
+      target: development
+    container_name: polymarket-sentinel-dev
+    profiles:
+      - dev
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=DEBUG
+      - DRY_RUN=true
+      - POLL_INTERVAL_SECONDS=30
+    volumes:
+      # Mount source for live reload
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    networks:
+      - sentinel-network
+    command: ["python", "-m", "src.cli", "run", "--dry-run", "--interval", "30"]
+
+  # ============ Redis Cache (Optional) ============
+  redis:
+    image: redis:7-alpine
+    container_name: polymarket-sentinel-redis
+    profiles:
+      - cache
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - sentinel-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  sentinel-network:
+    driver: bridge
+
+volumes:
+  redis-data:

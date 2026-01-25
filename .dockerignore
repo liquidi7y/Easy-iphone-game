@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+dist
+build
+*.egg
+
+# Virtual environments
+venv
+env
+.venv
+.env.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# Logs and data (will be mounted as volumes)
+logs/
+data/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation build
+docs/_build
+
+# Secrets (never include in image)
+.env
+*.pem
+*.key
+credentials.json
