@@ -1,0 +1,406 @@
+{
+  "uid": "machine-overview",
+  "title": "All machines",
+  "tags": [
+    "machine-monitoring"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Machines",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT m.code AS machine, m.name,\n       CASE WHEN NOT m.enabled THEN 'OFF' WHEN cs.machine_id IS NULL OR now() - cs.updated_at > interval '15 seconds' THEN 'UNKNOWN' ELSE cs.state END AS state,\n       CASE WHEN NOT m.enabled THEN 'DISABLED' WHEN cs.machine_id IS NULL THEN 'NO DATA' WHEN now() - cs.updated_at > interval '15 seconds' THEN 'COLLECTOR DOWN'\n            WHEN cs.plc_connected THEN 'CONNECTED' ELSE 'PLC UNREACHABLE' END AS link,\n       extract(epoch FROM now() - cs.state_since) AS in_state,\n       (cs.normalized->'machine.speed'->>'value')::float AS speed,\n       (cs.normalized->'counter.total'->>'value')::bigint AS counter,\n       (SELECT coalesce(sum(delta), 0) FROM production_counters pc WHERE pc.machine_id = m.id\n          AND pc.counter = 'counter.total' AND pc.time >= date_trunc('day', now())) AS produced_today,\n       CASE WHEN m.simulated THEN 'simulated' WHEN NOT m.enabled THEN 'disabled' ELSE 'production' END AS source,\n       m.id AS id\n  FROM machines m LEFT JOIN machine_current_state cs ON cs.machine_id = m.id\n  ORDER BY m.enabled DESC, m.simulated, m.code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "RUNNING"
+                      },
+                      "IDLE": {
+                        "color": "yellow",
+                        "index": 1,
+                        "text": "IDLE"
+                      },
+                      "READY": {
+                        "color": "blue",
+                        "index": 2,
+                        "text": "READY"
+                      },
+                      "STOPPED": {
+                        "color": "orange",
+                        "index": 3,
+                        "text": "STOPPED"
+                      },
+                      "FAULT": {
+                        "color": "red",
+                        "index": 4,
+                        "text": "FAULT"
+                      },
+                      "E_STOP": {
+                        "color": "dark-red",
+                        "index": 5,
+                        "text": "E-STOP"
+                      },
+                      "OFF": {
+                        "color": "text",
+                        "index": 6,
+                        "text": "OFF"
+                      },
+                      "UNKNOWN": {
+                        "color": "purple",
+                        "index": 7,
+                        "text": "UNKNOWN"
+                      },
+                      "CONNECTED": {
+                        "color": "green",
+                        "index": 8,
+                        "text": "CONNECTED"
+                      },
+                      "PLC UNREACHABLE": {
+                        "color": "red",
+                        "index": 9,
+                        "text": "PLC UNREACHABLE"
+                      },
+                      "COLLECTOR DOWN": {
+                        "color": "purple",
+                        "index": 10,
+                        "text": "COLLECTOR DOWN"
+                      },
+                      "NO DATA": {
+                        "color": "purple",
+                        "index": 11,
+                        "text": "NO DATA"
+                      },
+                      "DISABLED": {
+                        "color": "text",
+                        "index": 12,
+                        "text": "DISABLED"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "link"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "RUNNING"
+                      },
+                      "IDLE": {
+                        "color": "yellow",
+                        "index": 1,
+                        "text": "IDLE"
+                      },
+                      "READY": {
+                        "color": "blue",
+                        "index": 2,
+                        "text": "READY"
+                      },
+                      "STOPPED": {
+                        "color": "orange",
+                        "index": 3,
+                        "text": "STOPPED"
+                      },
+                      "FAULT": {
+                        "color": "red",
+                        "index": 4,
+                        "text": "FAULT"
+                      },
+                      "E_STOP": {
+                        "color": "dark-red",
+                        "index": 5,
+                        "text": "E-STOP"
+                      },
+                      "OFF": {
+                        "color": "text",
+                        "index": 6,
+                        "text": "OFF"
+                      },
+                      "UNKNOWN": {
+                        "color": "purple",
+                        "index": 7,
+                        "text": "UNKNOWN"
+                      },
+                      "CONNECTED": {
+                        "color": "green",
+                        "index": 8,
+                        "text": "CONNECTED"
+                      },
+                      "PLC UNREACHABLE": {
+                        "color": "red",
+                        "index": 9,
+                        "text": "PLC UNREACHABLE"
+                      },
+                      "COLLECTOR DOWN": {
+                        "color": "purple",
+                        "index": 10,
+                        "text": "COLLECTOR DOWN"
+                      },
+                      "NO DATA": {
+                        "color": "purple",
+                        "index": 11,
+                        "text": "NO DATA"
+                      },
+                      "DISABLED": {
+                        "color": "text",
+                        "index": 12,
+                        "text": "DISABLED"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "in_state"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "machine"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Machine detail",
+                    "url": "/grafana/d/machine-detail/machine-detail?var-machine=${__data.fields.id}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "description": "Produced today counts from 00:00 UTC."
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Production per interval (all machines)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time_bucket('$__interval', pc.time) AS time, m.code AS metric, sum(pc.delta) AS value\n  FROM production_counters pc JOIN machines m ON m.id = pc.machine_id\n  WHERE pc.counter = 'counter.total' AND $__timeFilter(pc.time) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Collector health (latest per machine)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (m.code) m.code AS machine, h.time, h.collector_id, h.plc_connected,\n       round(h.poll_duration_ms::numeric, 1) AS poll_ms, h.poll_errors_total AS poll_errors, h.details->>'error' AS last_error\n  FROM collector_health h JOIN machines m ON m.id = h.machine_id\n  WHERE h.time > now() - interval '1 hour' ORDER BY m.code, h.time DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "API docs",
+      "type": "link",
+      "url": "/api/v1/docs",
+      "targetBlank": true,
+      "icon": "doc"
+    },
+    {
+      "title": "Machines",
+      "type": "dashboards",
+      "tags": [
+        "machine-monitoring"
+      ],
+      "asDropdown": true
+    }
+  ]
+}

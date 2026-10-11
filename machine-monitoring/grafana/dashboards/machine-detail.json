@@ -1,0 +1,1183 @@
+{
+  "uid": "machine-detail",
+  "title": "Machine detail",
+  "tags": [
+    "machine-monitoring"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "machine",
+        "label": "Machine",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timescaledb"
+        },
+        "query": "SELECT id AS __value, code || CASE WHEN simulated THEN ' (simulated)' ELSE '' END AS __text FROM machines ORDER BY enabled DESC, simulated, code",
+        "definition": "machines",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "sort": 0,
+        "current": {}
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Machine state",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE WHEN now() - updated_at > interval '15 seconds' THEN 'UNKNOWN' ELSE state END AS state FROM machine_current_state WHERE machine_id = $machine"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "RUNNING": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "RUNNING"
+                },
+                "IDLE": {
+                  "color": "yellow",
+                  "index": 1,
+                  "text": "IDLE"
+                },
+                "READY": {
+                  "color": "blue",
+                  "index": 2,
+                  "text": "READY"
+                },
+                "STOPPED": {
+                  "color": "orange",
+                  "index": 3,
+                  "text": "STOPPED"
+                },
+                "FAULT": {
+                  "color": "red",
+                  "index": 4,
+                  "text": "FAULT"
+                },
+                "E_STOP": {
+                  "color": "dark-red",
+                  "index": 5,
+                  "text": "E-STOP"
+                },
+                "OFF": {
+                  "color": "text",
+                  "index": 6,
+                  "text": "OFF"
+                },
+                "UNKNOWN": {
+                  "color": "purple",
+                  "index": 7,
+                  "text": "UNKNOWN"
+                },
+                "CONNECTED": {
+                  "color": "green",
+                  "index": 8,
+                  "text": "CONNECTED"
+                },
+                "PLC UNREACHABLE": {
+                  "color": "red",
+                  "index": 9,
+                  "text": "PLC UNREACHABLE"
+                },
+                "COLLECTOR DOWN": {
+                  "color": "purple",
+                  "index": 10,
+                  "text": "COLLECTOR DOWN"
+                },
+                "NO DATA": {
+                  "color": "purple",
+                  "index": 11,
+                  "text": "NO DATA"
+                },
+                "DISABLED": {
+                  "color": "text",
+                  "index": 12,
+                  "text": "DISABLED"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      },
+      "description": "Canonical state. UNKNOWN means the monitoring path cannot see the machine - it is never shown as STOPPED."
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "In state for",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT extract(epoch FROM now() - state_since) AS seconds FROM machine_current_state WHERE machine_id = $machine AND now() - updated_at <= interval '15 seconds'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Monitoring link",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE WHEN now() - updated_at > interval '15 seconds' THEN 'COLLECTOR DOWN'\n                   WHEN plc_connected THEN 'CONNECTED' ELSE 'PLC UNREACHABLE' END AS link FROM machine_current_state WHERE machine_id = $machine"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "CONNECTED": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "CONNECTED"
+                },
+                "PLC UNREACHABLE": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "PLC UNREACHABLE"
+                },
+                "COLLECTOR DOWN": {
+                  "color": "purple",
+                  "index": 2,
+                  "text": "COLLECTOR DOWN"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      },
+      "description": "Health of the monitoring path (collector -> PLC). A red/purple value is a monitoring problem, not a machine problem."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Last PLC read",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT extract(epoch FROM now() - last_successful_read) AS age FROM machine_current_state WHERE machine_id = $machine"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      },
+      "description": "Seconds since the last successful controller read."
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Speed",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (normalized->'machine.speed'->>'value')::float AS speed FROM machine_current_state WHERE machine_id = $machine AND now() - updated_at <= interval '15 seconds'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "sheets/min",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Counter total",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (normalized->'counter.total'->>'value')::bigint AS total FROM machine_current_state WHERE machine_id = $machine AND now() - updated_at <= interval '15 seconds'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Produced (range)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(sum(delta), 0) AS produced FROM production_counters\n              WHERE machine_id = $machine AND counter = 'counter.total' AND $__timeFilter(time)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 8,
+      "type": "state-timeline",
+      "title": "State timeline",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, new_state AS state FROM (\n  (SELECT $__timeFrom()::timestamptz AS time, new_state FROM machine_state_events\n    WHERE machine_id = $machine AND time < $__timeFrom() ORDER BY time DESC LIMIT 1)\n  UNION ALL\n  SELECT time, new_state FROM machine_state_events WHERE machine_id = $machine AND $__timeFilter(time)\n) s ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "RUNNING": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "RUNNING"
+                },
+                "IDLE": {
+                  "color": "yellow",
+                  "index": 1,
+                  "text": "IDLE"
+                },
+                "READY": {
+                  "color": "blue",
+                  "index": 2,
+                  "text": "READY"
+                },
+                "STOPPED": {
+                  "color": "orange",
+                  "index": 3,
+                  "text": "STOPPED"
+                },
+                "FAULT": {
+                  "color": "red",
+                  "index": 4,
+                  "text": "FAULT"
+                },
+                "E_STOP": {
+                  "color": "dark-red",
+                  "index": 5,
+                  "text": "E-STOP"
+                },
+                "OFF": {
+                  "color": "text",
+                  "index": 6,
+                  "text": "OFF"
+                },
+                "UNKNOWN": {
+                  "color": "purple",
+                  "index": 7,
+                  "text": "UNKNOWN"
+                },
+                "CONNECTED": {
+                  "color": "green",
+                  "index": 8,
+                  "text": "CONNECTED"
+                },
+                "PLC UNREACHABLE": {
+                  "color": "red",
+                  "index": 9,
+                  "text": "PLC UNREACHABLE"
+                },
+                "COLLECTOR DOWN": {
+                  "color": "purple",
+                  "index": 10,
+                  "text": "COLLECTOR DOWN"
+                },
+                "NO DATA": {
+                  "color": "purple",
+                  "index": 11,
+                  "text": "NO DATA"
+                },
+                "DISABLED": {
+                  "color": "text",
+                  "index": 12,
+                  "text": "DISABLED"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "alignValue": "left",
+        "rowHeight": 0.9,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Speed",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time, value AS \"speed\" FROM normalized_samples\n  WHERE machine_id = $machine AND name = 'machine.speed' AND $__timeFilter(time) ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "sheets/min",
+          "min": 0,
+          "custom": {
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Production per interval",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time_bucket('$__interval', time) AS time, sum(delta) AS \"sheets\"\n  FROM production_counters WHERE machine_id = $machine AND counter = 'counter.total' AND $__timeFilter(time)\n  GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Active order",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT o.order_number AS \"order\", o.product, o.target_quantity AS target,\n       (SELECT value FROM production_counters pc WHERE pc.machine_id = s.machine_id AND counter = 'counter.total'\n         ORDER BY time DESC LIMIT 1) - s.start_counter AS produced,\n       s.operator, s.shift, s.started_at AS started\n  FROM machine_order_sessions s JOIN orders o ON o.id = s.order_id\n  WHERE s.machine_id = $machine AND s.ended_at IS NULL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 12,
+      "type": "bargauge",
+      "title": "Time in state (range)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH changes AS (\n  (SELECT time, new_state FROM machine_state_events WHERE machine_id = $machine AND time < $__timeFrom() ORDER BY time DESC LIMIT 1)\n  UNION ALL SELECT time, new_state FROM machine_state_events WHERE machine_id = $machine AND $__timeFilter(time)\n), spans AS (\n  SELECT new_state, greatest(time, $__timeFrom()) AS s, least(coalesce(lead(time) OVER (ORDER BY time), now()), $__timeTo()) AS e FROM changes\n)\nSELECT new_state AS state, sum(extract(epoch FROM e - s)) AS seconds FROM spans WHERE e > s GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "reduceOptions": {
+          "calcs": [],
+          "fields": "",
+          "values": true
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Downtime",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS started, ended_at AS ended, state, reason,\n       extract(epoch FROM coalesce(ended_at, now()) - started_at) AS duration\n  FROM downtime_events WHERE machine_id = $machine\n   AND started_at < $__timeTo() AND (ended_at IS NULL OR ended_at > $__timeFrom())\n  ORDER BY started_at DESC LIMIT 100"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "RUNNING"
+                      },
+                      "IDLE": {
+                        "color": "yellow",
+                        "index": 1,
+                        "text": "IDLE"
+                      },
+                      "READY": {
+                        "color": "blue",
+                        "index": 2,
+                        "text": "READY"
+                      },
+                      "STOPPED": {
+                        "color": "orange",
+                        "index": 3,
+                        "text": "STOPPED"
+                      },
+                      "FAULT": {
+                        "color": "red",
+                        "index": 4,
+                        "text": "FAULT"
+                      },
+                      "E_STOP": {
+                        "color": "dark-red",
+                        "index": 5,
+                        "text": "E-STOP"
+                      },
+                      "OFF": {
+                        "color": "text",
+                        "index": 6,
+                        "text": "OFF"
+                      },
+                      "UNKNOWN": {
+                        "color": "purple",
+                        "index": 7,
+                        "text": "UNKNOWN"
+                      },
+                      "CONNECTED": {
+                        "color": "green",
+                        "index": 8,
+                        "text": "CONNECTED"
+                      },
+                      "PLC UNREACHABLE": {
+                        "color": "red",
+                        "index": 9,
+                        "text": "PLC UNREACHABLE"
+                      },
+                      "COLLECTOR DOWN": {
+                        "color": "purple",
+                        "index": 10,
+                        "text": "COLLECTOR DOWN"
+                      },
+                      "NO DATA": {
+                        "color": "purple",
+                        "index": 11,
+                        "text": "NO DATA"
+                      },
+                      "DISABLED": {
+                        "color": "text",
+                        "index": 12,
+                        "text": "DISABLED"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Latest events",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, event_type AS event, data::text AS details FROM machine_events\n  WHERE machine_id = $machine AND $__timeFilter(time) ORDER BY time DESC LIMIT 100"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Raw signals (diagnostic)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT key AS signal, value->>'address' AS address, value->>'value' AS value,\n       CASE WHEN now() - cs.updated_at > interval '15 seconds' THEN 'stale' ELSE value->>'quality' END AS quality,\n       CASE WHEN (value->>'verified')::boolean THEN 'verified' ELSE 'UNVERIFIED' END AS mapping\n  FROM machine_current_state cs, jsonb_each(cs.signals) WHERE cs.machine_id = $machine ORDER BY 2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "quality"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "good": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "uncertain": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "stale": {
+                        "color": "purple",
+                        "index": 2
+                      },
+                      "bad": {
+                        "color": "red",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "description": "Vendor-level device values as last read. UNVERIFIED addresses are not yet confirmed by device discovery."
+    }
+  ],
+  "links": [
+    {
+      "title": "API docs",
+      "type": "link",
+      "url": "/api/v1/docs",
+      "targetBlank": true,
+      "icon": "doc"
+    },
+    {
+      "title": "Machines",
+      "type": "dashboards",
+      "tags": [
+        "machine-monitoring"
+      ],
+      "asDropdown": true
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+# JOBOTEHNIK RDC-53 / STACKER - pilot machine
+#
+# STATUS: device discovery not started (milestone M5).
+#
+# The PLC source project is assumed unavailable. Every address below is
+# UNVERIFIED until confirmed by the discovery procedure in
+# docs/machines/rdc53/README.md (diagrams + GX Works3 monitoring +
+# controlled observation + timestamped operator annotations).
+#
+# Rules for editing this file:
+#   * read_only must stay true. The collector has no write path.
+#   * Never mark a signal "verified" without recording its evidence.
+#   * Never mark a signal safety_related from correlation alone.
+#   * Do not add a `state` section until RUN/STOP/FAULT signals are verified;
+#     without it the platform reports UNKNOWN, which is the honest answer.
+#
+# The machine stays disabled until the Mitsubishi read-only driver (M4)
+# exists and the PLC IP has been confirmed on site (Phase 0).
+
+schema_version: 1
+
+machine:
+  code: RDC53
+  name: JOBOTEHNIK RDC-53 / STACKER
+  site: n1
+  vendor: JOBOTEHNIK
+  model: RDC-53
+  enabled: false
+
+controller:
+  vendor: Mitsubishi
+  model: unconfirmed (programmed with GX Works3 -> iQ-R or iQ-F family)
+  notes: >-
+    Confirm CPU model and whether the built-in Ethernet port has an SLMP
+    (MC protocol) connection configured. Do not change PLC parameters to
+    enable it without the machine builder's agreement.
+
+connection:
+  driver: mitsubishi_slmp
+  host: ${RDC53_PLC_IP:-0.0.0.0}
+  port: ${RDC53_PLC_PORT:-5007}
+  read_only: true
+  timeout_ms: 1000
+  options:
+    frame: 3E
+    encoding: binary
+
+poll_groups:
+  fast: 500
+  normal: 1000
+  slow: 10000
+
+signals:
+  - address: M461
+    name: beater_forward_start
+    type: bool
+    poll: fast
+    status: unverified
+    confidence: low
+    evidence: Name taken from the initial specification; not yet observed on the PLC.
+
+  - address: M462
+    name: beater_reverse_start
+    type: bool
+    poll: fast
+    status: unverified
+    confidence: low
+    evidence: Name taken from the initial specification; not yet observed on the PLC.
+
+  - address: M471
+    name: belts1_forward_start
+    type: bool
+    poll: fast
+    status: unverified
+    confidence: low
+    evidence: Name taken from the initial specification; not yet observed on the PLC.
+
+# Template for newly discovered points (copy, fill in, keep status unverified
+# until the evidence is reviewed):
+#
+#  - address: D0
+#    name: snake_case_name
+#    type: uint16
+#    poll: normal
+#    status: unverified
+#    physical_function: what it does on the machine
+#    evidence: "diagram p.12 + test 2026-xx-xx T3 14:02:11"
+#    confidence: low
+#    normal_state: 0
+#    unit: sheets/min
+#    notes: ""

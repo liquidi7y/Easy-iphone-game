@@ -1,0 +1,78 @@
+# SIMULATED machine - shaped like the RDC-53 stacker.
+#
+# Used for development, CI and the first end-to-end run. The simulator
+# service reads this same file to know which address carries which
+# simulated process variable (sim_role), so collector and simulator can
+# never disagree about the map.
+#
+# Addresses are deliberately in the M9000/D9000 range so they can never be
+# mistaken for real RDC-53 addresses.
+
+schema_version: 1
+
+machine:
+  code: SIM01
+  name: Simulated stacker (RDC-53 profile)
+  site: n1
+  vendor: Nueva
+  model: simulator
+  enabled: true
+  simulated: true
+
+controller:
+  vendor: Nueva
+  model: simulator
+
+connection:
+  driver: simulator
+  host: ${SIMULATOR_HOST:-simulator}
+  port: ${SIMULATOR_PORT:-8502}
+  read_only: true
+  timeout_ms: 1000
+
+poll_groups:
+  fast: 250
+  normal: 1000
+  slow: 5000
+
+signals:
+  - { address: M9000, name: sim_ready,          type: bool,   poll: fast,   status: verified, sim_role: ready,          normal_state: true }
+  - { address: M9001, name: sim_running,        type: bool,   poll: fast,   status: verified, sim_role: running }
+  - { address: M9002, name: sim_fault,          type: bool,   poll: fast,   status: verified, sim_role: fault,          normal_state: false }
+  - { address: M9003, name: sim_estop,          type: bool,   poll: fast,   status: verified, sim_role: estop,          normal_state: false }
+  - { address: M9004, name: sim_feeder_active,  type: bool,   poll: fast,   status: verified, sim_role: feeder }
+  - { address: M9005, name: sim_stack_cycle,    type: bool,   poll: fast,   status: verified, sim_role: stack_cycle }
+  - { address: D9000, name: sim_speed,          type: uint16, poll: normal, status: verified, sim_role: speed,          unit: sheets/min }
+  - { address: D9002, name: sim_counter_total,  type: uint32, poll: fast,   status: verified, sim_role: counter_total,  unit: sheets }
+  - { address: D9004, name: sim_counter_reject, type: uint32, poll: normal, status: verified, sim_role: counter_reject, unit: sheets }
+  - { address: D9006, name: sim_fault_code,     type: uint16, poll: fast,   status: verified, sim_role: fault_code }
+  - { address: D9010, name: sim_motor_temp,     type: int16,  poll: slow,   status: verified, sim_role: motor_temp,     unit: degC, scale: 0.1 }
+
+normalized:
+  machine.ready:      { signal: sim_ready }
+  machine.running:    { signal: sim_running }
+  machine.fault:      { signal: sim_fault }
+  machine.estop:      { signal: sim_estop }
+  machine.speed:      { signal: sim_speed, unit: sheets/min }
+  machine.fault_code: { signal: sim_fault_code }
+  counter.total:      { signal: sim_counter_total, unit: sheets }
+  counter.reject:     { signal: sim_counter_reject, unit: sheets }
+
+state:
+  rules:
+    - state: E_STOP
+      when: { signal: sim_estop, equals: true }
+      reason: emergency stop active
+    - state: FAULT
+      when: { signal: sim_fault, equals: true }
+      reason: fault bit set
+    - state: RUNNING
+      when: { all: [ { signal: sim_running, equals: true }, { signal: sim_speed, gt: 0 } ] }
+      reason: running with speed > 0
+    - state: IDLE
+      when: { signal: sim_running, equals: true }
+      reason: running but not producing
+    - state: READY
+      when: { signal: sim_ready, equals: true }
+      reason: ready, not running
+  default: STOPPED

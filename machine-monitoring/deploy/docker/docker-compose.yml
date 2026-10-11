@@ -1,0 +1,171 @@
+# Nueva machine monitoring - service stack.
+#
+#   ../../scripts/gen-env.sh            # once: creates .env with random secrets
+#   docker compose up -d --build
+#
+# Only the reverse proxy publishes a port. Database, MQTT and service ports
+# stay on the internal Docker network. Nothing in this stack can write to a PLC.
+
+name: machine-monitoring
+
+x-restart: &restart
+  restart: unless-stopped
+  init: true
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  postgres:
+    <<: [*restart, *logging]
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-monitoring}
+      POSTGRES_USER: ${POSTGRES_USER:-monitoring}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/gen-env.sh}
+      TIMESCALEDB_TELEMETRY: "off"
+    command: ["postgres", "-c", "timescaledb.telemetry_level=off", "-c", "shared_buffers=512MB"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    shm_size: 256mb
+
+  migrate:
+    <<: *logging
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-monitoring}
+      PGUSER: ${POSTGRES_USER:-monitoring}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?run scripts/gen-env.sh}
+    volumes:
+      - ../../database/migrations:/migrations:ro
+      - ../../scripts/migrate.sh:/migrate.sh:ro
+    entrypoint: ["/bin/sh", "/migrate.sh"]
+
+  mosquitto:
+    <<: [*restart, *logging]
+    image: eclipse-mosquitto:2.0.20
+    environment:
+      MQTT_USER: ${MQTT_USER:-collector}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?run scripts/gen-env.sh}
+    entrypoint: ["/bin/sh", "/mosquitto/config/entrypoint.sh"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/entrypoint.sh:/mosquitto/config/entrypoint.sh:ro
+      - mosquitto:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -u \"$$MQTT_USER\" -P \"$$MQTT_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  simulator:
+    <<: [*restart, *logging]
+    build: ../../services/simulator
+    profiles: ["simulator"]
+    environment:
+      SIM_MACHINE_CONFIG: /config/sim-rdc53.yaml
+      SIM_SPEEDUP: ${SIM_SPEEDUP:-1}
+      SIM_SEED: ${SIM_SEED:-}
+    volumes:
+      - ../../machine-config:/config:ro
+
+  collector:
+    <<: [*restart, *logging]
+    build: ../../services/collector
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      mosquitto: { condition: service_started }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-monitoring}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-monitoring}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_USER: ${MQTT_USER:-collector}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      MACHINE_CONFIG_DIR: /config
+      COLLECTOR_ID: ${COLLECTOR_ID:-collector-01}
+      MACHINES: ${COLLECTOR_MACHINES:-}
+      SIMULATOR_HOST: simulator
+      RDC53_PLC_IP: ${RDC53_PLC_IP:-}
+      RDC53_PLC_PORT: ${RDC53_PLC_PORT:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ../../machine-config:/config:ro
+
+  api:
+    <<: [*restart, *logging]
+    build: ../../services/api
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-monitoring}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-monitoring}
+
+  grafana:
+    <<: [*restart, *logging]
+    image: grafana/grafana:11.3.0
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run scripts/gen-env.sh}
+      GF_SERVER_ROOT_URL: ${PUBLIC_URL:-http://localhost}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS_VIEWER:-false}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/machine-overview.json
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-monitoring}
+    volumes:
+      - grafana:/var/lib/grafana
+      - ../../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  reverse-proxy:
+    <<: [*restart, *logging]
+    image: caddy:2.8.4-alpine
+    depends_on: [api, grafana]
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+
+  node-exporter:
+    <<: [*restart, *logging]
+    image: prom/node-exporter:v1.8.2
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+
+  cadvisor:
+    <<: [*restart, *logging]
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: ["observability"]
+    privileged: true
+    devices: ["/dev/kmsg"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - ${DOCKER_DATA_ROOT:-/var/lib/docker}:/var/lib/docker:ro
+
+volumes:
+  pgdata:
+  mosquitto:
+  grafana:
+  caddy:
