@@ -1,0 +1,6 @@
+asyncpg==0.30.0
+httpx==0.28.1
+jsonschema==4.23.0
+paho-mqtt==2.1.0
+prometheus-client==0.21.1
+PyYAML==6.0.2

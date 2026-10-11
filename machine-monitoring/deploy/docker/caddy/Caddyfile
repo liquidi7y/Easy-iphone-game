@@ -1,0 +1,41 @@
+# Single internal entry point.
+#   /api/*      -> api (OpenAPI docs at /api/v1/docs)
+#   /grafana/*  -> grafana
+#   /           -> redirect to Grafana
+# Plain HTTP on the plant network for the pilot; TLS when productionized
+# (replace ":80" with the host name and an internal CA / ACME setup).
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		redir * /grafana/ 302
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

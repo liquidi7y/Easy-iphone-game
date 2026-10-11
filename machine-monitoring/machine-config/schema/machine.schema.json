@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nueva.local/machine-monitoring/machine.schema.json",
+  "title": "Nueva machine monitoring - machine configuration",
+  "description": "One file per machine. Describes how to reach the controller (read-only), which device addresses to poll, how to map them to the normalized machine model and how to derive the canonical machine state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "machine", "connection", "signals"],
+  "properties": {
+    "schema_version": { "const": 1 },
+
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "name", "site"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,31}$", "description": "Stable machine identifier, upper case. Lower-cased for MQTT topics." },
+        "name": { "type": "string", "minLength": 1 },
+        "site": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$" },
+        "vendor": { "type": "string" },
+        "model": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true, "description": "Disabled machines are registered in the database but not polled." },
+        "simulated": { "type": "boolean", "default": false, "description": "True for machines whose data comes from the simulator. Shown in UI/API so simulated data is never mistaken for production." }
+      }
+    },
+
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vendor": { "type": "string" },
+        "model": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "host", "read_only"],
+      "properties": {
+        "driver": { "enum": ["simulator", "mitsubishi_slmp", "modbus_tcp", "opcua"] },
+        "host": { "type": "string", "minLength": 1, "description": "May reference environment variables: ${VAR} or ${VAR:-default}." },
+        "port": { "type": ["integer", "string"] },
+        "read_only": { "const": true, "description": "Monitoring v1 is read-only. Any other value is rejected." },
+        "timeout_ms": { "type": "integer", "minimum": 50, "maximum": 30000, "default": 1000 },
+        "options": { "type": "object", "description": "Driver-specific options (e.g. SLMP frame type, network/station numbers)." }
+      }
+    },
+
+    "poll_groups": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Poll intervals in milliseconds. Defaults: fast=500, normal=1000, slow=10000. Tune only after PLC/network load testing.",
+      "properties": {
+        "fast": { "type": "integer", "minimum": 100, "maximum": 5000 },
+        "normal": { "type": "integer", "minimum": 250, "maximum": 30000 },
+        "slow": { "type": "integer", "minimum": 1000, "maximum": 300000 }
+      }
+    },
+
+    "signals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/signal" }
+    },
+
+    "normalized": {
+      "type": "object",
+      "description": "Maps normalized machine-model fields to configured signals.",
+      "propertyNames": { "$ref": "#/$defs/normalized_name" },
+      "additionalProperties": { "$ref": "#/$defs/mapping" }
+    },
+
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules", "default"],
+      "description": "Ordered rules; the first matching rule wins. If any signal referenced by any rule is missing or stale the state is UNKNOWN. Without a state section the machine state is always UNKNOWN.",
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["state", "when"],
+            "properties": {
+              "state": { "$ref": "#/$defs/machine_state" },
+              "when": { "$ref": "#/$defs/condition" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "default": { "$ref": "#/$defs/machine_state" }
+      }
+    }
+  },
+
+  "$defs": {
+    "machine_state": { "enum": ["OFF", "READY", "RUNNING", "IDLE", "STOPPED", "FAULT", "E_STOP"] },
+
+    "normalized_name": {
+      "enum": [
+        "machine.ready", "machine.running", "machine.fault", "machine.estop", "machine.speed",
+        "machine.fault_code",
+        "counter.total", "counter.good", "counter.reject",
+        "cycle.rate"
+      ]
+    },
+
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "name", "type", "poll", "status"],
+      "properties": {
+        "address": { "type": "string", "pattern": "^[A-Z]{1,3}[0-9A-F]+$", "description": "Vendor device address, e.g. M461, D100, X1F. Radix is interpreted by the driver." },
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "type": { "enum": ["bool", "int16", "uint16", "int32", "uint32", "float32"] },
+        "poll": { "enum": ["fast", "normal", "slow"] },
+        "status": { "enum": ["verified", "unverified"], "description": "Unverified signals are collected but anything derived from them is published with quality 'uncertain'." },
+        "description": { "type": "string" },
+        "physical_function": { "type": "string" },
+        "evidence": { "type": "string", "description": "Where the mapping came from: diagram page, GX Works3 observation, test timestamp..." },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "normal_state": { "type": ["boolean", "number", "string", "null"] },
+        "unit": { "type": "string" },
+        "scale": { "type": "number", "description": "Engineering value = raw * scale + offset" },
+        "offset": { "type": "number" },
+        "safety_related": { "type": "boolean", "description": "Informational only. Never infer a safety function from correlation; set true only from documented evidence." },
+        "sim_role": { "type": "string", "description": "Simulator only: which simulated process variable drives this address." },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal"],
+      "properties": {
+        "signal": { "type": "string" },
+        "invert": { "type": "boolean", "description": "Boolean signals only." },
+        "scale": { "type": "number" },
+        "unit": { "type": "string" }
+      }
+    },
+
+    "condition": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["signal"],
+          "properties": {
+            "signal": { "type": "string" },
+            "equals": { "type": ["boolean", "number"] },
+            "not_equals": { "type": ["boolean", "number"] },
+            "gt": { "type": "number" },
+            "lt": { "type": "number" }
+          },
+          "minProperties": 2,
+          "maxProperties": 2
+        },
+        {
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": { "all": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["any"],
+          "properties": { "any": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["not"],
+          "properties": { "not": { "$ref": "#/$defs/condition" } }
+        }
+      ]
+    }
+  }
+}

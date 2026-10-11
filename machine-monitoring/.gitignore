@@ -1,0 +1,8 @@
+# secrets and site-specific config
+deploy/docker/.env
+deploy/config.env
+# local data
+data/
+backups/
+__pycache__/
+.pytest_cache/
