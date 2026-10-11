@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Калкулатор велпапе</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mut:#5d6672; --line:#dde1e6; --acc:#1f6feb;
+          --ok:#1a7f37; --warn:#9a6700; --err:#cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ee; --mut:#9aa4b0; --line:#2a3038; --acc:#4c8dff;
+            --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:16px; }
+  h1 { font-size:18px; margin:4px 0 12px; }
+  .bar { display:flex; gap:8px; }
+  #q { flex:1; min-width:0; font-size:18px; padding:12px 14px; border:1px solid var(--line); border-radius:10px;
+       background:var(--card); color:var(--ink); }
+  button { font-size:16px; padding:10px 16px; border-radius:10px; border:0; background:var(--acc); color:#fff;
+           cursor:pointer; }
+  button.sec { background:transparent; color:var(--acc); border:1px solid var(--line); }
+  .hint { color:var(--mut); font-size:13px; margin:6px 2px 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .k { color:var(--mut); font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+  .v { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .s { color:var(--mut); font-size:13px; }
+  section { margin-top:14px; }
+  details { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px;
+            margin-top:10px; }
+  summary { cursor:pointer; font-weight:600; }
+  .w { padding:6px 10px; border-left:3px solid var(--warn); margin:6px 0; background:var(--card); }
+  .w.info { border-color:var(--mut); } .w.error { border-color:var(--err); }
+  .tag { display:inline-block; padding:1px 8px; border-radius:99px; border:1px solid var(--line); font-size:12px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td { border-top:1px solid var(--line); padding:4px 6px; vertical-align:top; }
+  .form { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-top:8px; }
+  .form label { font-size:12px; color:var(--mut); display:flex; flex-direction:column; gap:2px; }
+  .form input, .form select { font-size:15px; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
+                              background:var(--bg); color:var(--ink); }
+  #recent li { cursor:pointer; color:var(--acc); }
+  .err { color:var(--err); font-weight:600; }
+  pre { white-space:pre-wrap; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Калкулатор велпапе <span id="ver" class="tag"></span></h1>
+  <div class="bar">
+    <input id="q" autocomplete="off" placeholder="Размер / качество / количество или напиши въпрос">
+    <button id="go">Калкулирай</button>
+    <button id="reset" class="sec" title="Нов контекст">Нов</button>
+  </div>
+  <div class="hint">Примери: <code>1192/792/779 EC3008 160</code> · <code>1192/792/779 EC 160</code> ·
+    <code>Лист 1200 на 800, цена 1060 лв. за 1000 квадрата</code> · после „А за 240?“, „20% марж“,
+    „На 4.50 евро колко остава?“ · Enter = калкулирай, Ctrl/Cmd+K = фокус</div>
+
+  <div id="out"></div>
+
+  <details>
+    <summary>Лист и ръчна цена (работи без AI)</summary>
+    <div class="form">
+      <label>Лист дължина, mm<input id="f_sl" inputmode="numeric"></label>
+      <label>Лист ширина, mm<input id="f_sw" inputmode="numeric"></label>
+      <label>Изделия в лист<input id="f_n" inputmode="numeric"></label>
+      <label>Посока на вълната<select id="f_fd"><option value="">неизвестна</option>
+        <option value="along_length">по дължината</option><option value="along_width">по ширината</option></select></label>
+      <label>Количество<input id="f_q" inputmode="numeric"></label>
+      <label>Цена<input id="f_p" inputmode="decimal"></label>
+      <label>База<select id="f_u"><option value="per_1000m2">за 1000 m²</option><option value="per_m2">за m²</option>
+        <option value="per_sheet">за лист</option></select></label>
+      <label>Валута<select id="f_c"><option>BGN</option><option>EUR</option></select></label>
+    </div>
+    <p><button id="fgo">Калкулирай лист</button></p>
+  </details>
+
+  <details>
+    <summary>Кашон по конструкция</summary>
+    <div class="form">
+      <label>L, mm<input id="b_l" inputmode="numeric"></label>
+      <label>W, mm<input id="b_w" inputmode="numeric"></label>
+      <label>H, mm<input id="b_h" inputmode="numeric"></label>
+      <label>FEFCO<input id="b_f" value="0201"></label>
+      <label>Материал<input id="b_m" placeholder="EC3008"></label>
+      <label>Вълна<input id="b_fl" placeholder="EC"></label>
+      <label>Количество<input id="b_q" inputmode="numeric"></label>
+      <label>Целеви марж, %<input id="b_tm" inputmode="decimal"></label>
+    </div>
+    <p><button id="bgo">Калкулирай кашон</button></p>
+  </details>
+
+  <details><summary>Производство, опаковане</summary>
+    <p class="s">Етап 2: машини, маршрути, тарифи, фолио/чембер, палети. Бързата сметка не зависи от тях.</p>
+  </details>
+
+  <section><div class="k">Последни калкулации</div><ul id="recent"></ul></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let state = null;
+const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function m(x) { return x ? `${esc(x.rounded)} ${esc(x.currency)}` : '—'; }
+function card(k, v, s) { return `<div class="card"><div class="k">${esc(k)}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`; }
+
+function render(res, extra) {
+  const r = res; const mat = r.material; const parts = [];
+  if (extra) parts.push(`<p class="s">${extra}</p>`);
+  const cards = [];
+  if (r.blank) cards.push(card('Разгъв', `${r.blank.blank_length_mm} × ${r.blank.blank_width_mm}`,
+     `FEFCO ${esc(r.blank.fefco)} · ${esc(r.blank.formula_version || 'ръчен')} · обем ${esc(r.blank.volume_m3)} m³`));
+  if (r.blank) cards.push(card('Площ/изделие', `${esc(r.blank.area_m2)} m²`));
+  if (r.layout) cards.push(card('Лист', `${esc(r.layout.sheet_area_m2)} m²`,
+     `${r.layout.sheet_length_mm} × ${r.layout.sheet_width_mm} · ${r.layout.items_per_sheet} в лист` +
+     (r.layout.layout_waste_percent ? ` · отпадък ${esc(r.layout.layout_waste_percent)}%` : '')));
+  if (r.quantities) cards.push(card('Закупено', `${esc(r.quantities.purchased_area_m2)} m²`,
+     `${r.quantities.purchased_sheets} листа · произведени ${r.quantities.produced_items} · излишък ${r.quantities.surplus_items}`));
+  if (mat.cost_per_sheet && r.mode !== 'box') cards.push(card('Материал/лист', m(mat.cost_per_sheet), `${esc(mat.price_per_m2)} /m²`));
+  if (mat.cost_per_item) cards.push(card(`Материал/бр. ${esc(mat.material_code || '')}`, m(mat.cost_per_item), `точно: ${esc(mat.cost_per_item.amount)}`));
+  if (mat.total) cards.push(card('Общо материал', m(mat.total), `точно: ${esc(mat.total.amount)}`));
+  if (mat.tier) cards.push(card('Праг', esc(mat.tier.code), `${esc(mat.tier.interval)} m² · ${esc(mat.tier.price)} ${esc(mat.tier.price_unit)}`));
+  if (r.sales) cards.push(card('Продажна цена/бр.', m(r.sales.sales_price_per_item),
+     `${esc(r.sales.cost_basis_label)}: ${esc(r.sales.margin_percent ?? '—')}% · markup ${esc(r.sales.markup_percent ?? '—')}% · остава ${m(r.sales.profit_per_item)}`));
+  parts.push(`<div class="grid">${cards.join('')}</div>`);
+  if (mat.status !== 'OK') parts.push(`<p class="err">${esc(mat.status)}: ${esc(mat.status_message)}</p>`);
+  if (mat.source) parts.push(`<p class="s">Източник: ${esc(mat.source.label)} · ${esc(mat.source.tax_basis)}${mat.rounding_note ? ' · ' + esc(mat.rounding_note) : ''}</p>`);
+
+  const o = r.optimization;
+  if (o) {
+    let t = `<div class="k">Количествена оптимизация</div><p><span class="tag">${esc(o.category)}</span> ${esc(o.message)}</p>`;
+    if (o.proposed_quantity) t += `<table>
+      <tr><td></td><td>Текущо</td><td>Предложено</td></tr>
+      <tr><td>Количество</td><td>${o.current_quantity}</td><td>${o.proposed_quantity} (+${o.extra_items ?? ''}, ${esc(o.increase_pct ?? '')}%)</td></tr>
+      <tr><td>Площ, m²</td><td>${esc(o.current_area_m2)}</td><td>${esc(o.proposed_area_m2)}</td></tr>
+      <tr><td>Ед. цена</td><td>${m(o.current_unit_cost)}</td><td>${m(o.proposed_unit_cost)}</td></tr>
+      <tr><td>Общо</td><td>${m(o.current_total)}</td><td>${m(o.proposed_total)}</td></tr>
+      <tr><td>Ефективна цена доп. бройки</td><td colspan="2">${m(o.effective_price_extra_items)}</td></tr></table>`;
+    if (o.just_below_threshold) t += `<p class="s">${o.just_below_threshold.quantity} бр. → ${o.proposed_quantity} бр.: ${m(o.just_below_threshold.total)} → ${m(o.proposed_total)}; икономия ${m(o.just_below_threshold.saving_at_threshold)}</p>`;
+    parts.push(`<section class="card">${t}<div class="s">${esc(o.basis)}</div></section>`);
+  }
+  const rec = r.recommendation;
+  if (rec) parts.push(`<section class="card"><div class="k">Материал</div>
+    <p>Препоръчан: <b>${esc(rec.recommended || '—')}</b> · Economy: <b>${esc(rec.economy || '—')}</b> · риск ${esc(rec.risk)} · ${esc(rec.size_class || '')} · ${esc(rec.technical_validation_status)}</p>
+    <p class="s">${rec.reason_codes.map(esc).join(', ')}${rec.missing_inputs.length ? ' · липсва: ' + rec.missing_inputs.map(esc).join(', ') : ''}</p></section>`);
+
+  parts.push(`<section><div class="k">Включено: ${r.included_costs.map(esc).join(', ') || 'нищо'} · Производство: ${esc(r.production_status)}</div>
+    <div class="s">Не е включено: ${r.not_included.map(esc).join(', ')}</div></section>`);
+  parts.push('<section>' + r.warnings.map(w => `<div class="w ${esc(w.severity)}">${esc(w.message)}</div>`).join('') + '</section>');
+  parts.push(`<details><summary>Trace · engine ${esc(r.engine_version)} · ${esc(r.rule_version)}${r.test_data_only ? ' · ТЕСТОВИ ДАННИ' : ''}</summary><pre>${esc(JSON.stringify(r.trace, null, 1))}</pre></details>`);
+  $('out').innerHTML = parts.join('');
+}
+
+async function post(url, body) {
+  const resp = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+  return data;
+}
+
+async function chat(text) {
+  if (!text.trim()) return;
+  try {
+    const d = await post('/api/v1/chat/message', { text, state });
+    state = d.state;
+    if (d.error) { $('out').innerHTML = `<p class="err">${esc(d.error)}</p>`; return; }
+    if (!d.result) { $('out').innerHTML = `<p>${esc(d.explanation.join(' '))}</p><p class="s">${esc(d.parse.notes.join(' '))}</p>`; return; }
+    render(d.result, [...d.explanation, ...d.parse.notes].map(esc).join(' '));
+    const recent = store.get('recent', []).filter(x => x !== text); recent.unshift(text);
+    store.set('recent', recent.slice(0, 10)); showRecent();
+  } catch (e) { $('out').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+async function calc(req) {
+  try { render(await post('/api/v1/calculate', req)); }
+  catch (e) { $('out').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+function v(id) { const x = $(id).value.trim(); return x === '' ? null : x; }
+function int(id) { const x = v(id); return x === null ? null : parseInt(x, 10); }
+
+$('fgo').onclick = () => {
+  const req = { sheet: { length_mm: int('f_sl'), width_mm: int('f_sw') }, quantity: int('f_q') };
+  if (int('f_n')) req.sheet.items_per_sheet = int('f_n');
+  if (v('f_fd')) req.sheet.flute_direction = v('f_fd');
+  if (v('f_p')) req.manual_price = { price: v('f_p').replace(',', '.'), unit: v('f_u'), currency: v('f_c') };
+  calc(req);
+};
+$('bgo').onclick = () => {
+  const req = { box: { length_mm: int('b_l'), width_mm: int('b_w'), height_mm: int('b_h'), fefco: v('b_f') },
+                quantity: int('b_q'), material_code: v('b_m'), flute: v('b_fl') };
+  if (v('b_tm')) req.sales = { target_margin_pct: v('b_tm').replace(',', '.') };
+  calc(req);
+};
+$('go').onclick = () => chat($('q').value);
+$('reset').onclick = () => { state = null; $('out').innerHTML = ''; $('q').value = ''; $('q').focus(); };
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); chat($('q').value); } });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('q').focus(); $('q').select(); } });
+function showRecent() {
+  $('recent').innerHTML = store.get('recent', []).map(t => `<li>${esc(t)}</li>`).join('');
+  [...$('recent').children].forEach(li => li.onclick = () => { state = null; $('q').value = li.textContent; chat(li.textContent); });
+}
+showRecent();
+fetch('/api/v1/health').then(r => r.json()).then(h => { $('ver').textContent = `engine ${h.engine_version}${h.test_data_only ? ' · тестови данни' : ''}`; }).catch(() => {});
+$('q').focus();
+</script>
+</body>
+</html>

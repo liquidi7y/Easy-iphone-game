@@ -1,0 +1,8 @@
+# Етап 1, стъпка 1: само calculation service. PostgreSQL, reverse proxy и frontend
+# се добавят със следващата стъпка (регистри, оферти, audit, роли).
+services:
+  calc:
+    build: .
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
