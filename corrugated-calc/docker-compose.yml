@@ -1,8 +1,29 @@
-# Етап 1, стъпка 1: само calculation service. PostgreSQL, reverse proxy и frontend
-# се добавят със следващата стъпка (регистри, оферти, audit, роли).
+# calculation service + PostgreSQL. Reverse proxy (HTTPS) стои пред calc; портът е само локален.
 services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: calc
+      POSTGRES_USER: calc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calc -d calc"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
   calc:
     build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://calc:${POSTGRES_PASSWORD}@db:5432/calc
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,4 +1,4 @@
-# Калкулатор велпапе — Етап 1, първа стъпка
+# Калкулатор велпапе — Етап 1
 
 Изпълнение на „Техническо задание: калкулатор и офериране на изделия от велпапе“ v1.1.
 Това е **първият работещ резултат** по раздел 18: форма „лист + цена“ и форма „кашон + количество“,
@@ -7,11 +7,47 @@
 ## Стартиране
 
 ```bash
-pip install -e ".[dev]"
-uvicorn calc.api.app:app --reload        # http://localhost:8000  (OpenAPI: /docs)
-python -m pytest -q
-# или: docker compose up --build
+pip install -e ".[dev]"                   # + системно: tesseract-ocr tesseract-ocr-bul (за OCR)
+export DATABASE_URL="postgresql+psycopg://user:pass@localhost:5432/calc"
+python -m calc.db.cli migrate             # Alembic миграции
+python -m calc.db.cli seed                # тестовите данни от data/seed_test.json (идемпотентно)
+python -m calc.db.cli add-user ivan administrator "Иван Петров"
+python -m calc.db.cli add-user maria sales_manager "Мария"
+uvicorn calc.api.app:app                  # / калкулатор, /imports ценоразписи, /docs OpenAPI
+python -m pytest -q                       # DB тестовете ползват TEST_DATABASE_URL (базата се изчиства!)
 ```
+
+С Docker: `cp .env.example .env` (сменете паролата), `docker compose up --build`, после
+`docker compose exec calc python -m calc.db.cli seed` и `add-user`. Без `DATABASE_URL` калкулаторът
+работи само от JSON файла (без импорт). Backup: `docker compose exec db pg_dump -U calc -Fc calc > calc.dump`;
+restore: `pg_restore -U calc -d calc --clean calc.dump`.
+
+## Импорт на ценоразписи (`/imports`)
+
+Поток: **Upload → Extract → Preview/Edit → Validate → Approve → Activate**.
+
+| Вход | Как се чете |
+|---|---|
+| .xlsx / .xls | всеки sheet е отделна таблица; клетките пазят sheet + адрес (B7) |
+| .csv | автоматичен разделител (; , таб), UTF-8 или CP1251 |
+| текстов PDF | pdfplumber таблици + текст извън тях; страница + bbox |
+| сканиран PDF | рендиране 300 dpi → Tesseract (bul+eng); страница + bbox + увереност |
+| JPEG / PNG / HEIC | EXIF ориентация, HEIC → PNG за преглед, OCR; няколко снимки = един ценоразпис |
+
+- Автоматично се разпознават заглавен ред, колона с код, колони с прагове (`1000-1500 м2`, `над 2000`, `от 1500`, `до 1000`),
+  валута, ценова база, ДДС, валидност и минимална заявка — всяко с връзка към реда в оригинала.
+- Десетичният разделител се определя от документа; `1,060` при неясен документ остава **двусмислено** (1060 или 1.060),
+  без попълване. Нечетливите и OCR стойности с ниска увереност се маркират.
+- Екранът показва оригинала (снимка/страница с рамка около източника или Excel таблица) до редактируемата таблица.
+- Валидиране: задължителни полета, непознати/дублирани материали, припокриващи се прагове (грешки);
+  празнини, липсващи цени по праг, цена > 3× от медианата, по-висока цена при по-голям праг и
+  промяна над 15% спрямо текущата версия (предупреждения, изискват изрично потвърждение).
+- **Границите на праговете винаги се потвърждават от човек** — включването при 1500/2000 не се предполага.
+- Одобрението създава нова **неизменима** версия (`approved`); активирането е отделно действие на администратор и
+  архивира предишната активна. Старите версии не се презаписват (защитено и с тригери в PostgreSQL).
+- Всяка редакция, валидиране, одобрение и активиране е в `audit_log` (кой, кога, стара/нова стойност; само добавяне).
+- Права (проверка в API): качване/редакция/одобрение — `sales_manager`, `administrator`; активиране — `administrator`.
+  **Временно** потребителят се подава със заглавка `X-User`; това не е автентикация и се заменя в следващата стъпка.
 
 ## Какво е готово
 
@@ -32,19 +68,20 @@ python -m pytest -q
 | Trace (входове, defaults, формули, източници), warnings, включено / не е включено | ✅ |
 | Детерминиран парсер за бърз вход и последващи въпроси („А за 240?“, „С BC?“, „По-евтиния?“, „20% марж“, „На 4.50 евро…“) | ✅ без AI |
 | Web екран: голямо поле, Enter, Ctrl/Cmd+K, сгъваеми форми, последни калкулации, телефон | ✅ |
-| Време за проста сметка | ~0.4 ms в engine, ~3 ms p50 HTTP (цел < 300 ms) |
+| PostgreSQL (NUMERIC, Alembic): регистри, версии на ценоразписи, импорти, оригинални файлове, audit log, потребители | ✅ |
+| Импорт от Excel / CSV / текстов и сканиран PDF / снимки (вкл. HEIC) с преглед до оригинала | ✅ |
+| Време за проста сметка | ~0.4 ms в engine; ~12 ms p50 HTTP с конфигурация от PostgreSQL (цел < 300 ms) |
 
-## Какво още не е направено (следващи стъпки на Етап 1)
+## Какво още не е направено
 
-1. PostgreSQL schema/migrations (NUMERIC) за всички регистри от раздел 4; сега регистрите са в `data/seed_test.json`.
-2. Импорт на ценоразписи: Excel/CSV, текстов и сканиран PDF, снимки (OCR) → Preview до оригинала → Validate → Approve → Activate.
-3. Оферти, неизменими snapshots, версии, exact/near search, история по клиент.
-4. Роли (Sales / Manager / Technologist / Admin / Read Only), локална автентикация, audit log, rate limiting.
-5. Палетни позиции като отделни редове; клиентски публичен модел (allowlist).
-6. LLM parser зад същия изход (`/chat/parse`) — сегашният парсер остава fallback, когато AI е недостъпен.
-7. Отворени въпроси към бизнеса: поведение при ≥ 2000 m²; реални граници/минимуми; tags и алтернативи за
-   EC3008/EC4027 в тестовия файл са **placeholder** (EC3008 = RECOMMENDED, EC4027 = SIMILAR без
-   потвърдена еквивалентност); праговете за GOOD_OPTIMIZATION (0.75 от ед. цена) и max увеличение (15%).
+1. Автентикация: локален вход с пароли, сесии/timeout, rate limiting (сега временно `X-User`).
+2. Редакция на материали, формули и настройки през API/екран с версии (сега — seed + директно в базата).
+3. Оферти, неизменими snapshots, версии, exact/near search, история по клиент; палетни позиции; клиентски модел.
+4. Импорт: фонова обработка за големи многостранични сканове (сега синхронно, ~1–2 s на страница);
+   AI assist за сложна структура (интерфейсът е готов — предложение за преглед, никога директно active).
+5. LLM chat parser зад `/chat/parse`.
+6. Отворени въпроси към бизнеса: поведение при ≥ 2000 m²; реални граници/минимуми; tags и алтернативи за
+   EC3008/EC4027 в тестовия файл са **placeholder**; праговете за GOOD_OPTIMIZATION (0.75) и max увеличение (15%).
 
 ## Структура
 
@@ -52,8 +89,11 @@ python -m pytest -q
 calc/engine/   numbers, config (регистри), construction (FEFCO), pricing (прагове, оптимизация),
                sales (марж), recommend, calculate (оркестратор), models (типизиран вход/изход)
 calc/parser/   детерминиран парсер за бърз вход/чат
-calc/api/      FastAPI /api/v1/{calculate, recommend-material, materials, chat/parse, chat/message, health}
-calc/web/      index.html
+calc/api/      FastAPI /api/v1/{calculate, recommend-material, materials, chat/*, imports/*, price-lists/*, audit}
+calc/db/       models (schema), session, repository (Config от базата, seed), audit, cli
+calc/imports/  extract (Excel/CSV/PDF/OCR), numparse, proposal (авто-mapping), validate, service (поток)
+calc/web/      index.html (калкулатор), imports.html (ценоразписи)
+migrations/    Alembic: 0001 schema, 0002 тригери за неизменимост и append-only audit
 data/          seed_test.json — ТЕСТОВИ ДАННИ от раздел 17, не са активни цени
-tests/         acceptance тестове
+tests/         acceptance, импорт за всеки формат (генерирани файлове), роли, audit, неизменимост
 ```

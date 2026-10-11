@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Callable, Optional
+from typing import Optional
 
 from .config import Config, Currency, PriceList, PriceUnit, Tier
 from .models import ManualPrice, MaterialCost, Money, OptimizationResult, PriceSource, TierInfo

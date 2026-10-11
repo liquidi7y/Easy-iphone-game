@@ -12,20 +12,33 @@ from pydantic import BaseModel, ValidationError
 
 from .. import ENGINE_VERSION
 from ..engine.calculate import calculate
-from ..engine.config import get_config
+from ..db.repository import build_config
+from ..db.session import database_url, session_scope
+from ..engine.config import Config, get_config
 from ..engine.construction import UnsupportedConstruction
 from ..engine.models import CalculateRequest, CalculationResult, TraceStep
 from ..parser.quick import ParseResult, parse
+from .price_lists import router as price_list_router
 
 app = FastAPI(title="Калкулатор велпапе", version=ENGINE_VERSION,
               description="Детерминиран калкулационен engine. Decimal стойностите са низове.")
 
 WEB = Path(__file__).resolve().parents[1] / "web" / "index.html"
+IMPORTS_WEB = Path(__file__).resolve().parents[1] / "web" / "imports.html"
+app.include_router(price_list_router)
+
+
+def current_config() -> Config:
+    """С DATABASE_URL: регистрите и ценоразписите от PostgreSQL; иначе JSON (dev/тестове без база)."""
+    if database_url():
+        with session_scope() as s:
+            return build_config(s)
+    return get_config()
 
 
 def _run(req: CalculateRequest) -> CalculationResult:
     try:
-        return calculate(req)
+        return calculate(req, current_config())
     except (UnsupportedConstruction, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -35,9 +48,14 @@ def index():
     return FileResponse(WEB)
 
 
+@app.get("/imports", include_in_schema=False)
+def imports_page():
+    return FileResponse(IMPORTS_WEB)
+
+
 @app.get("/api/v1/health")
 def health():
-    cfg = get_config()
+    cfg = current_config()
     return {"status": "ok", "engine_version": ENGINE_VERSION, "rule_version": cfg.rule_version,
             "test_data_only": cfg.test_data_only}
 
@@ -58,7 +76,7 @@ def recommend_material(req: CalculateRequest):
 
 @app.get("/api/v1/materials")
 def materials():
-    cfg = get_config()
+    cfg = current_config()
     return {code: {"display_code": m.display_code, "flute": m.flute, "tags": m.tags} for code, m in
             cfg.materials.items()}
 
@@ -89,14 +107,15 @@ def chat_message(body: ChatRequest):
     if not p.calculable:
         return ChatResponse(parse=p, state=p.request, explanation=["Липсва: " + ", ".join(p.missing_inputs)])
     try:
+        cfg = current_config()
         req = CalculateRequest.model_validate(state)
-        res = calculate(req)
+        res = calculate(req, cfg)
         explanation = []
         if p.intent == "select_economy":
             econ = res.recommendation.economy if res.recommendation else None
             if econ:
                 state["material_code"] = econ
-                res = calculate(CalculateRequest.model_validate(state))
+                res = calculate(CalculateRequest.model_validate(state), cfg)
                 explanation.append(f"Избран economy материал {econ} (техническата еквивалентност не е потвърдена).")
             else:
                 explanation.append("Няма по-евтина допустима алтернатива с налична цена.")

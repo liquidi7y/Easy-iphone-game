@@ -7,6 +7,7 @@ from typing import Optional
 
 from .config import Config
 from .models import CalculateRequest, MaterialCost, MaterialRecommendation
+from .numbers import clean
 
 
 def size_class(cfg: Config, volume_m3: Optional[Decimal]) -> Optional[str]:
@@ -83,7 +84,7 @@ def recommend(cfg: Config, req: CalculateRequest, primary: Optional[str], volume
                  "total": c.total.model_dump(mode="json") if c.total else None,
                  "cost_per_item": c.cost_per_item.model_dump(mode="json") if c.cost_per_item else None}
         if total is not None and prim_total:
-            entry["difference_pct"] = str(((total - prim_total) * 100 / prim_total).normalize())
+            entry["difference_pct"] = str(clean((total - prim_total) * 100 / prim_total))
             if total < prim_total and (alt is None or alt.type in ("ECONOMY", "SIMILAR")):
                 if economy is None or total < costs[economy].total.amount:
                     economy = code

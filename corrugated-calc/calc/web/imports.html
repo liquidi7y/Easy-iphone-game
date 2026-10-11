@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ценоразписи</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mut:#5d6672; --line:#dde1e6; --acc:#1f6feb;
+          --ok:#1a7f37; --warn:#9a6700; --err:#cf222e; --hl:rgba(255,196,0,.35); --amb:#fff1c2; --bad:#ffd8d3; --ed:#ddf4ff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ee; --mut:#9aa4b0; --line:#2a3038; --acc:#4c8dff;
+            --ok:#3fb950; --warn:#d29922; --err:#f85149; --hl:rgba(255,196,0,.35); --amb:#4a3b0a; --bad:#5c1f1a; --ed:#0c2d4a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { font-size:16px; margin:0; } header a { color:var(--acc); }
+  main { padding:12px 16px; max-width:1500px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+  label { font-size:12px; color:var(--mut); display:flex; flex-direction:column; gap:2px; }
+  input, select { font-size:14px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); min-width:0; }
+  button { font-size:14px; padding:7px 12px; border-radius:8px; border:0; background:var(--acc); color:#fff; cursor:pointer; }
+  button.sec { background:transparent; color:var(--acc); border:1px solid var(--line); }
+  button.small { padding:2px 8px; font-size:12px; }
+  .split { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:start; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } .viewer { position:static; max-height:none; } }
+  .split > * { min-width:0; }
+  .row > label { max-width:100%; }
+  .st { overflow-wrap:anywhere; }
+  .scroll { overflow-x:auto; max-width:100%; }
+  .viewer { position:sticky; top:8px; max-height:calc(100vh - 16px); overflow:auto; }
+  .imgwrap { position:relative; }
+  .imgwrap img { width:100%; display:block; border:1px solid var(--line); }
+  .box { position:absolute; border:2px solid #f0a000; background:var(--hl); pointer-events:none; }
+  table { border-collapse:collapse; width:100%; }
+  td, th { border:1px solid var(--line); padding:3px 5px; vertical-align:top; text-align:left; }
+  th { background:var(--bg); font-weight:600; font-size:12px; }
+  .grid td { font-size:12px; white-space:nowrap; }
+  .grid td.hl { background:var(--hl); outline:2px solid #f0a000; }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  .tabs button { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  .tabs button.on { background:var(--acc); color:#fff; }
+  td.ambiguous, td.unreadable, td.low_confidence, td.missing-req { background:var(--amb); }
+  td.unreadable { background:var(--bad); }
+  td.edited, td.manual, td.confirmed { background:var(--ed); }
+  td input { width:100%; min-width:70px; }
+  .st { font-size:11px; color:var(--mut); }
+  .badge { display:inline-block; padding:0 6px; border-radius:99px; border:1px solid var(--line); font-size:11px; }
+  .err { color:var(--err); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+  ul.issues { margin:6px 0; padding-left:18px; } ul.issues li { cursor:pointer; }
+  .mut { color:var(--mut); }
+  .drop { border:2px dashed var(--line); border-radius:12px; padding:16px; text-align:center; color:var(--mut); }
+  .drop.over { border-color:var(--acc); }
+  .note { font-size:12px; color:var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ценоразписи</h1>
+  <a href="/">← Калкулатор</a>
+  <label style="flex-direction:row;align-items:center;gap:6px">Потребител
+    <input id="user" placeholder="username" style="width:130px"></label>
+  <span id="me" class="mut"></span>
+  <span class="note">Временна идентификация (X-User) до въвеждане на вход с парола/SSO.</span>
+</header>
+<main>
+  <section class="card" id="uploadCard">
+    <div class="row">
+      <label>Код на ценоразпис<input id="plCode" list="plCodes" placeholder="напр. SUPPLIER-2026"></label>
+      <datalist id="plCodes"></datalist>
+      <label>Доставчик<input id="supplier"></label>
+      <label>Файлове (Excel, CSV, PDF, снимки/HEIC)
+        <input id="files" type="file" multiple accept=".xlsx,.xls,.csv,.pdf,image/*,.heic,.heif"></label>
+      <button id="uploadBtn">Качи и разчети</button>
+      <button id="manualBtn" class="sec">Ръчно въвеждане</button>
+    </div>
+    <div class="drop" id="drop" style="margin-top:8px">Пуснете файлове тук. Няколко снимки или страници = един ценоразпис.</div>
+    <div id="uploadMsg"></div>
+  </section>
+
+  <section class="card">
+    <div class="row" style="justify-content:space-between"><b>Импорти</b><button class="sec small" id="refresh">Обнови</button></div>
+    <div class="scroll"><table id="jobs"></table></div>
+  </section>
+
+  <section id="job"></section>
+
+  <section class="card"><b>Версии на ценоразписи</b><div id="lists" class="scroll"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+let job = null, activeTable = null, highlight = null;
+const STATUS_TEXT = { ok:'', missing:'липсва', ambiguous:'двусмислено', unreadable:'нечетливо', low_confidence:'ниска увереност OCR',
+                      edited:'коригирано', confirmed:'потвърдено', manual:'ръчно' };
+
+$('user').value = store.get('xuser', '');
+$('user').onchange = () => { store.set('xuser', $('user').value.trim()); init(); };
+
+async function api(path, opts = {}) {
+  const headers = { 'X-User': $('user').value.trim(), ...(opts.json ? {'Content-Type':'application/json'} : {}) };
+  const r = await fetch(path, { method: opts.method || (opts.json || opts.body ? 'POST' : 'GET'), headers,
+                                body: opts.json ? JSON.stringify(opts.json) : opts.body });
+  const ct = r.headers.get('content-type') || '';
+  const data = ct.includes('json') ? await r.json() : null;
+  if (!r.ok) throw new Error(data && data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : r.statusText);
+  return data;
+}
+function flash(el, msg, cls='err') { el.innerHTML = `<p class="${cls}">${esc(msg)}</p>`; }
+
+async function init() {
+  try { const me = await api('/api/v1/me'); $('me').textContent = `${me.display_name} · ${me.role}`; }
+  catch (e) { $('me').textContent = e.message; return; }
+  loadJobs(); loadLists();
+}
+
+// ------------------------------------------------ upload
+async function doUpload(fileList) {
+  if (!fileList.length) return flash($('uploadMsg'), 'Изберете файл.');
+  const fd = new FormData();
+  [...fileList].forEach(f => fd.append('files', f));
+  if ($('plCode').value.trim()) fd.append('price_list_code', $('plCode').value.trim());
+  if ($('supplier').value.trim()) fd.append('supplier', $('supplier').value.trim());
+  flash($('uploadMsg'), 'Разчитане… (OCR може да отнеме няколко секунди)', 'mut');
+  try { const j = await api('/api/v1/imports', { body: fd }); $('uploadMsg').innerHTML = ''; openJob(j.id); loadJobs(); }
+  catch (e) { flash($('uploadMsg'), e.message); }
+}
+$('uploadBtn').onclick = () => doUpload($('files').files);
+$('manualBtn').onclick = async () => {
+  try { const j = await api('/api/v1/imports/manual', { json: { price_list_code: $('plCode').value.trim() || null, supplier: $('supplier').value.trim() || null } });
+        openJob(j.id); loadJobs(); } catch (e) { flash($('uploadMsg'), e.message); }
+};
+const drop = $('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); doUpload(e.dataTransfer.files); };
+$('refresh').onclick = () => { loadJobs(); loadLists(); };
+
+async function loadJobs() {
+  try {
+    const jobs = await api('/api/v1/imports');
+    $('jobs').innerHTML = '<tr><th>#</th><th>Статус</th><th>Ценоразпис</th><th>Файлове</th><th>Създаден</th></tr>' +
+      jobs.map(j => `<tr data-id="${j.id}" style="cursor:pointer"><td>${j.id}</td><td><span class="badge">${esc(j.status)}</span></td>
+        <td>${esc(j.price_list_code || '')}</td><td>${j.files.map(f => esc(f.filename)).join(', ') || '<span class="mut">ръчно</span>'}</td>
+        <td>${esc((j.created_at || '').slice(0,16).replace('T',' '))}</td></tr>`).join('');
+    [...$('jobs').querySelectorAll('tr[data-id]')].forEach(tr => tr.onclick = () => openJob(+tr.dataset.id));
+  } catch (e) { flash($('jobs'), e.message); }
+}
+
+// ------------------------------------------------ job view
+async function openJob(id) { job = await api(`/api/v1/imports/${id}`); activeTable = null; renderJob(); $('job').scrollIntoView({behavior:'smooth'}); }
+
+function renderJob() {
+  const p = job.proposal || {}, open = ['extracted','validated'].includes(job.status);
+  const tables = (job.extraction?.tables || []);
+  if (!activeTable && tables.length) activeTable = tables.find(t => t.kind !== 'text')?.id || tables[0].id;
+  const errs = (job.extraction?.errors || []).map(e => `<li class="err">${esc(e.filename)}: ${esc(e.message)}</li>`).join('');
+  $('job').innerHTML = `
+  <div class="card"><div class="row" style="justify-content:space-between">
+    <b>Импорт #${job.id} <span class="badge">${esc(job.status)}</span></b>
+    <span class="mut">${(p.notes || []).map(esc).join(' · ')}</span></div>
+    ${errs ? `<ul class="issues">${errs}</ul>` : ''}</div>
+  <div class="split">
+    <div class="card viewer"><div class="tabs" id="tabs"></div><div id="orig"></div></div>
+    <div>
+      <div class="card"><b>Общи данни</b><div class="row" id="hdr"></div></div>
+      <div class="card"><div class="row" style="justify-content:space-between"><b>Прагове (m²)</b>
+        ${open ? '<span><button class="sec small" id="addTier">+ праг</button> <button class="small" id="confTiers">Потвърди границите</button></span>' : ''}</div>
+        <div class="scroll"><table id="tiers"></table></div>
+        <p class="st">Включването на границите се задава по реалния договор; не се предполага.</p></div>
+      <div class="card"><div class="row" style="justify-content:space-between"><b>Цени (${esc(p.price_unit?.value || '?')}, ${esc(p.currency?.value || '?')})</b>
+        ${open ? '<button class="sec small" id="addRow">+ ред</button>' : ''}</div>
+        <div style="overflow:auto"><table id="rows"></table></div>
+        <p class="st">Жълто: за уточнение · червено: нечетливо · синьо: коригирано/потвърдено. Клик върху стойност показва източника.</p></div>
+      <div class="card" id="actions"></div>
+    </div>
+  </div>`;
+  renderTabs(tables); renderOrig(); renderHeader(p, open); renderTiers(p, open); renderRows(p, open); renderActions(open);
+}
+
+function renderTabs(tables) {
+  $('tabs').innerHTML = tables.map(t => `<button data-t="${esc(t.id)}" class="${t.id === activeTable ? 'on' : ''}">${esc(t.filename)} · ${esc(t.label)}</button>`).join('')
+    + job.files.map(f => `<a class="small" style="margin-left:6px" href="#" data-f="${f.id}">оригинал: ${esc(f.filename)}</a>`).join('');
+  [...$('tabs').querySelectorAll('button')].forEach(b => b.onclick = () => { activeTable = b.dataset.t; highlight = null; renderTabs(tables); renderOrig(); });
+  [...$('tabs').querySelectorAll('a[data-f]')].forEach(a => a.onclick = async e => {
+    e.preventDefault();
+    const r = await fetch(`/api/v1/imports/${job.id}/files/${a.dataset.f}`, { headers: { 'X-User': $('user').value.trim() } });
+    const url = URL.createObjectURL(await r.blob()); window.open(url, '_blank');
+  });
+}
+
+function renderOrig() {
+  const t = (job.extraction?.tables || []).find(x => x.id === activeTable);
+  if (!t) { $('orig').innerHTML = '<p class="mut">Няма разчетен файл (ръчно въвеждане).</p>'; return; }
+  if (t.kind === 'sheet') {
+    const maxC = Math.max(0, ...t.rows.flat().map(c => c.c));
+    const rowsHtml = t.rows.slice(0, 500).map(row => {
+      const by = Object.fromEntries(row.map(c => [c.c, c]));
+      const r = row[0]?.r;
+      return `<tr><th>${r === undefined ? '' : r + 1}</th>${Array.from({length: maxC + 1}, (_, c) => {
+        const cell = by[c]; const hl = highlight && cell && highlight.table_id === t.id && highlight.row === cell.r && highlight.col === cell.c;
+        return `<td class="${hl ? 'hl' : ''}">${cell ? esc(cell.t) : ''}</td>`; }).join('')}</tr>`; }).join('');
+    $('orig').innerHTML = `<div style="overflow:auto"><table class="grid">${rowsHtml}</table></div>`;
+    $('orig').querySelector('td.hl')?.scrollIntoView({block:'center'});
+    return;
+  }
+  const file = job.files.find(f => f.id === t.file_id);
+  const src = `/api/v1/imports/${job.id}/files/${t.file_id}/preview${t.page ? '?page=' + t.page : ''}`;
+  $('orig').innerHTML = `<div class="imgwrap"><img id="origImg" alt="${esc(file?.filename)}"><div id="box" class="box" hidden></div></div>`;
+  fetch(src, { headers: { 'X-User': $('user').value.trim() } }).then(r => r.blob()).then(b => {
+    const img = $('origImg'); if (!img) return;
+    img.onload = placeBox; img.src = URL.createObjectURL(b);
+  });
+  function placeBox() {
+    const box = $('box'), img = $('origImg');
+    if (!highlight || highlight.table_id !== t.id || !highlight.bbox || !t.image_size) { box.hidden = true; return; }
+    const k = img.clientWidth / t.image_size[0], [x0, y0, x1, y1] = highlight.bbox;
+    Object.assign(box.style, { left: x0 * k - 3 + 'px', top: y0 * k - 3 + 'px', width: (x1 - x0) * k + 6 + 'px', height: (y1 - y0) * k + 6 + 'px' });
+    box.hidden = false; box.scrollIntoView({block:'center'});
+  }
+  window.onresize = placeBox;
+}
+
+function showSource(src) {
+  if (!src) return;
+  highlight = src; activeTable = src.table_id;
+  renderTabs(job.extraction?.tables || []); renderOrig();
+}
+
+function fieldInput(name, f, open, type='text', options=null) {
+  const st = f?.status || 'missing';
+  const control = options
+    ? `<select data-field="${name}" ${open ? '' : 'disabled'}><option value=""></option>${options.map(o => `<option ${f?.value === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+    : `<input data-field="${name}" type="${type}" value="${esc(f?.value || '')}" ${open ? '' : 'disabled'}>`;
+  return `<label class="${st}" style="padding:2px;border-radius:6px">${esc(LABELS[name])} <span class="st">${esc(STATUS_TEXT[st] || st)}${f?.raw ? ' · „' + esc(f.raw.slice(0, 40)) + '“' : ''}</span>${control}</label>`;
+}
+const LABELS = { price_list_code:'Код', supplier:'Доставчик', currency:'Валута', price_unit:'Ценова база', tax_basis:'ДДС',
+                 valid_from:'Валиден от', valid_to:'Валиден до', min_order_m2:'Мин. заявка m²', min_invoiced_m2:'Мин. фактура m²' };
+
+function renderHeader(p, open) {
+  $('hdr').innerHTML = [fieldInput('price_list_code', p.price_list_code, open), fieldInput('supplier', p.supplier, open),
+    fieldInput('currency', p.currency, open, 'text', ['BGN','EUR']), fieldInput('price_unit', p.price_unit, open, 'text', ['per_1000m2','per_m2','per_sheet']),
+    fieldInput('tax_basis', p.tax_basis, open, 'text', ['excl_vat','incl_vat']), fieldInput('valid_from', p.valid_from, open, 'date'),
+    fieldInput('valid_to', p.valid_to, open, 'date'), fieldInput('min_order_m2', p.min_order_m2, open), fieldInput('min_invoiced_m2', p.min_invoiced_m2, open)].join('');
+  $('hdr').querySelectorAll('[data-field]').forEach(el => el.onchange = () => edit([{ op:'set_field', field: el.dataset.field, value: el.value || null }]));
+  $('hdr').querySelectorAll('label').forEach((l, i) => l.onclick = () => showSource(p[Object.keys(LABELS)[i]]?.source));
+}
+
+function renderTiers(p, open) {
+  const dis = open ? '' : 'disabled';
+  $('tiers').innerHTML = '<tr><th>Код</th><th>От</th><th>вкл.</th><th>До</th><th>вкл.</th><th>Заглавие в оригинала</th><th>Потвърден</th><th></th></tr>' +
+    (p.tiers || []).map(t => `<tr data-code="${t.code}"><td>${t.code}</td>
+      <td><input data-k="lower" value="${esc(t.lower.value || '')}" ${dis}></td><td><input type="checkbox" data-k="lower_inclusive" ${t.lower_inclusive ? 'checked' : ''} ${dis}></td>
+      <td><input data-k="upper" value="${esc(t.upper.value || '')}" placeholder="∞" ${dis}></td><td><input type="checkbox" data-k="upper_inclusive" ${t.upper_inclusive ? 'checked' : ''} ${dis}></td>
+      <td class="st" style="cursor:pointer">${esc(t.header_raw || '')}${t.lower.note ? '<br>' + esc(t.lower.note) : ''}</td>
+      <td class="${t.bounds_confirmed ? 'ok' : 'warn'}">${t.bounds_confirmed ? '✓' : 'не'}</td>
+      <td>${open ? '<button class="sec small" data-rm>×</button>' : ''}</td></tr>`).join('');
+  $('tiers').querySelectorAll('tr[data-code]').forEach(tr => {
+    const code = tr.dataset.code, t = p.tiers.find(x => x.code === code);
+    tr.querySelectorAll('[data-k]').forEach(el => el.onchange = () => {
+      const op = { op:'set_tier', code };
+      op[el.dataset.k] = el.type === 'checkbox' ? el.checked : (el.value || null);
+      edit([op]);
+    });
+    tr.querySelector('td.st').onclick = () => showSource(t.source);
+    const rm = tr.querySelector('[data-rm]'); if (rm) rm.onclick = () => confirm(`Премахване на ${code} и цените му?`) && edit([{ op:'remove_tier', code }]);
+  });
+  if (open) {
+    $('confTiers').onclick = () => edit([{ op:'confirm_tiers' }]);
+    $('addTier').onclick = () => edit([{ op:'add_tier' }]);
+  }
+}
+
+function renderRows(p, open) {
+  const tiers = p.tiers || [], dis = open ? '' : 'disabled';
+  $('rows').innerHTML = `<tr><th>Ред</th><th>Материал</th>${tiers.map(t => `<th>${t.code}<br><span class="st">${esc(t.lower.value)}–${esc(t.upper.value || '∞')}</span></th>`).join('')}<th></th></tr>` +
+    (p.rows || []).map(r => `<tr data-row="${r.id}"><td class="st">${r.id}</td>
+      <td class="${r.material.status}" data-mat><input data-mat value="${esc(r.material.value || '')}" ${dis}>
+        <div class="st">${esc(STATUS_TEXT[r.material.status] || '')}${r.material.raw && r.material.raw !== r.material.value ? ' · „' + esc(r.material.raw) + '“' : ''}${r.material.note ? ' · ' + esc(r.material.note) : ''}${(r.material.candidates||[]).map(c => ` <button class="sec small" data-mc="${esc(c)}">${esc(c)}</button>`).join('')}</div></td>
+      ${tiers.map(t => { const f = r.prices[t.code] || { status:'missing' };
+        return `<td class="${f.status}" data-tier="${t.code}"><input data-price value="${esc(f.value ?? '')}" placeholder="${esc(f.raw || '')}" ${dis}>
+          <div class="st">${esc(STATUS_TEXT[f.status] || '')}${f.raw && f.raw !== f.value ? ' · „' + esc(f.raw) + '“' : ''}${f.source?.conf ? ' · OCR ' + f.source.conf + '%' : ''}
+          ${(f.candidates || []).map(c => `<button class="sec small" data-pick="${esc(c)}">${esc(c)}</button>`).join(' ')}
+          ${open && f.value && ['low_confidence','ok'].includes(f.status) && f.source ? '<button class="sec small" data-ok>✓</button>' : ''}</div></td>`; }).join('')}
+      <td>${open ? '<button class="sec small" data-rm>×</button>' : ''}</td></tr>`).join('');
+  $('rows').querySelectorAll('tr[data-row]').forEach(tr => {
+    const id = tr.dataset.row, r = p.rows.find(x => x.id === id);
+    tr.querySelector('input[data-mat]').onchange = e => edit([{ op:'set_material', row_id:id, value:e.target.value || null }]);
+    tr.querySelector('td[data-mat]').onclick = e => { if (e.target.tagName !== 'BUTTON') showSource(r.material.source); };
+    tr.querySelectorAll('[data-mc]').forEach(b => b.onclick = () => edit([{ op:'set_material', row_id:id, value:b.dataset.mc }]));
+    tr.querySelectorAll('td[data-tier]').forEach(td => {
+      const tier = td.dataset.tier;
+      td.onclick = e => { if (e.target.tagName !== 'BUTTON') showSource(r.prices[tier]?.source); };
+      td.querySelector('input').onchange = e => edit([{ op:'set_price', row_id:id, tier, value:e.target.value || null }]);
+      td.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => edit([{ op:'set_price', row_id:id, tier, value:b.dataset.pick }]));
+      const ok = td.querySelector('[data-ok]'); if (ok) ok.onclick = () => edit([{ op:'confirm', row_id:id, tier }]);
+    });
+    const rm = tr.querySelector('[data-rm]'); if (rm) rm.onclick = () => edit([{ op:'remove_row', row_id:id }]);
+  });
+  if (open) $('addRow').onclick = () => edit([{ op:'add_row' }]);
+}
+
+function renderActions(open) {
+  const v = job.validation;
+  let html = '';
+  if (v) {
+    html += `<p class="${v.ok ? 'ok' : 'err'}"><b>${v.ok ? 'Валидирано без грешки' : 'Грешки: ' + v.errors.length}</b>${v.warnings.length ? ` · <span class="warn">предупреждения: ${v.warnings.length}</span>` : ''}</p>`;
+    html += `<ul class="issues">${v.errors.map((e, i) => `<li class="err" data-e="${i}">${esc(e.message)}</li>`).join('')}${v.warnings.map(w => `<li class="warn">${esc(w.message)}</li>`).join('')}</ul>`;
+  }
+  if (open) {
+    html += `<div class="row"><button id="validateBtn">Провери</button>`;
+    if (job.status === 'validated') html += `${v.warnings.length ? '<label style="flex-direction:row;gap:6px;align-items:center"><input type="checkbox" id="ack"> Прегледах предупрежденията</label>' : ''}<button id="approveBtn">Одобри като нова версия</button>`;
+    html += `</div><p class="st">Одобрението създава нова версия (status approved). Активирането е отделно действие на администратор.</p>`;
+  } else if (job.status === 'approved') {
+    html += `<p class="ok">Одобрено → версия #${job.result_version_id}. Активирането е в „Версии на ценоразписи“.</p>`;
+  }
+  html += '<div id="actMsg"></div>';
+  $('actions').innerHTML = html;
+  if ($('validateBtn')) $('validateBtn').onclick = async () => { try { await api(`/api/v1/imports/${job.id}/validate`, { json: {} }); openJob(job.id); } catch (e) { flash($('actMsg'), e.message); } };
+  if ($('approveBtn')) $('approveBtn').onclick = async () => {
+    try { const r = await api(`/api/v1/imports/${job.id}/approve`, { json: { acknowledge_warnings: !!$('ack')?.checked } });
+          await openJob(job.id); loadLists(); loadJobs(); flash($('actMsg'), `Създадена ${r.price_list_code} v${r.version} (approved).`, 'ok'); }
+    catch (e) { flash($('actMsg'), e.message); }
+  };
+}
+
+async function edit(ops) {
+  try { job = await api(`/api/v1/imports/${job.id}/edits`, { json: { ops } }); renderJob(); }
+  catch (e) { alert(e.message); renderJob(); }
+}
+
+// ------------------------------------------------ price lists
+async function loadLists() {
+  try {
+    const lists = await api('/api/v1/price-lists');
+    $('plCodes').innerHTML = lists.map(l => `<option value="${esc(l.code)}">${esc(l.supplier)}</option>`).join('');
+    $('lists').innerHTML = lists.map(l => `<h4 style="margin:10px 0 4px">${esc(l.code)} <span class="mut">· ${esc(l.supplier)}</span></h4>
+      <table><tr><th>v</th><th>Статус</th><th>Валута / база / ДДС</th><th>Валидност</th><th>Мин. заявка</th><th>Одобрена</th><th>Активирана</th><th></th></tr>
+      ${l.versions.map(v => `<tr><td>${v.version}</td><td><span class="badge">${esc(v.status)}</span></td><td>${esc(v.currency)} · ${esc(v.price_unit)} · ${esc(v.tax_basis)}</td>
+        <td>${esc(v.valid_from)} – ${esc(v.valid_to || '…')}</td><td>${esc(v.min_order_m2 || '')}</td><td>${esc((v.approved_at || '').slice(0,16).replace('T',' '))}</td>
+        <td>${esc((v.activated_at || '').slice(0,16).replace('T',' '))}</td>
+        <td>${v.status === 'approved' ? `<button class="small" data-act="${esc(l.code)}|${v.version}">Активирай</button> <button class="sec small" data-ref="${esc(l.code)}|${v.version}">Reference</button>` : ''}
+            <button class="sec small" data-draft="${esc(l.code)}|${v.version}">Нова чернова</button></td></tr>`).join('')}</table>`).join('');
+    const split = s => { const [c, v] = s.split('|'); return [encodeURIComponent(c), v]; };
+    $('lists').querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+      const [c, v] = split(b.dataset.act);
+      if (!confirm(`Активиране на ${b.dataset.act.replace('|', ' v')}? Текущата активна версия ще бъде архивирана.`)) return;
+      try { await api(`/api/v1/price-lists/${c}/versions/${v}/activate`, { json: {} }); loadLists(); } catch (e) { alert(e.message); } });
+    $('lists').querySelectorAll('[data-ref]').forEach(b => b.onclick = async () => {
+      const [c, v] = split(b.dataset.ref);
+      try { await api(`/api/v1/price-lists/${c}/versions/${v}/status`, { json: { status: 'reference' } }); loadLists(); } catch (e) { alert(e.message); } });
+    $('lists').querySelectorAll('[data-draft]').forEach(b => b.onclick = async () => {
+      const [c, v] = split(b.dataset.draft);
+      try { const j = await api(`/api/v1/price-lists/${c}/versions/${v}/draft`, { json: {} }); openJob(j.id); loadJobs(); } catch (e) { alert(e.message); } });
+  } catch (e) { flash($('lists'), e.message); }
+}
+
+init();
+</script>
+</body>
+</html>

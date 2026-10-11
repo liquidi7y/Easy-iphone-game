@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -76,6 +77,10 @@ class BusinessRules(BaseModel):
     min_sales_price: Optional[Decimal] = None
 
 
+class PriceImportSettings(BaseModel):
+    unusual_change_pct: Decimal = Decimal("15")
+
+
 class Settings(BaseModel):
     defaults: dict[str, str]
     rounding: RoundingSettings
@@ -84,6 +89,7 @@ class Settings(BaseModel):
     quantity_optimization: QuantityOptimizationSettings
     material_upgrade_threshold_pct: Decimal
     business_rules: BusinessRules = BusinessRules()
+    price_import: PriceImportSettings = PriceImportSettings()
 
 
 class ExchangeRate(BaseModel):
@@ -183,11 +189,17 @@ class Config(BaseModel):
     materials: dict[str, Material]
     price_lists: list[PriceList]
 
+    as_of: Optional[str] = None  # ISO дата за валидност; по подразбиране днес
+
     def usable_price_lists(self) -> list[PriceList]:
-        allowed = {"active", "approved"}
+        """Само active (и reference, ако е разрешено) и валидни към датата. Approved още не е в сила."""
+        allowed = {"active"}
         if self.settings.allow_reference_prices:
             allowed.add("reference")
-        return [p for p in self.price_lists if p.status in allowed]
+        today = self.as_of or date.today().isoformat()
+        usable = [p for p in self.price_lists if p.status in allowed and p.valid_from <= today
+                  and (p.valid_to is None or p.valid_to >= today)]
+        return sorted(usable, key=lambda p: p.status != "active")  # active преди reference
 
     def price_list_for(self, material_code: str, price_list_id: Optional[str] = None) -> Optional[PriceList]:
         for pl in self.usable_price_lists():
