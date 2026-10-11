@@ -43,11 +43,16 @@
   #recent li { cursor:pointer; color:var(--acc); }
   .err { color:var(--err); font-weight:600; }
   pre { white-space:pre-wrap; font-size:12px; }
+  nav.top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--card); font-size:14px; }
+  nav.top a { color:var(--acc); text-decoration:none; } nav.top a[aria-current] { font-weight:600; color:var(--ink); }
+  nav.top .who { margin-left:auto; color:var(--mut); font-size:13px; }
+  button.small { padding:4px 10px; font-size:13px; }
 </style>
 </head>
 <body>
+<nav class="top" id="nav"></nav>
 <main>
-  <h1>Калкулатор велпапе <span id="ver" class="tag"></span> <a href="/imports" style="font-size:13px;font-weight:400;color:var(--acc)">Ценоразписи →</a></h1>
+  <h1>Калкулатор велпапе <span id="ver" class="tag"></span></h1>
   <div class="bar">
     <input id="q" autocomplete="off" placeholder="Размер / качество / количество или напиши въпрос">
     <button id="go">Калкулирай</button>
@@ -97,6 +102,7 @@
 
   <section><div class="k">Последни калкулации</div><ul id="recent"></ul></section>
 </main>
+<script src="/static/common.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 let state = null;
@@ -151,14 +157,54 @@ function render(res, extra) {
     <div class="s">Не е включено: ${r.not_included.map(esc).join(', ')}</div></section>`);
   parts.push('<section>' + r.warnings.map(w => `<div class="w ${esc(w.severity)}">${esc(w.message)}</div>`).join('') + '</section>');
   parts.push(`<details><summary>Trace · engine ${esc(r.engine_version)} · ${esc(r.rule_version)}${r.test_data_only ? ' · ТЕСТОВИ ДАННИ' : ''}</summary><pre>${esc(JSON.stringify(r.trace, null, 1))}</pre></details>`);
+  if (r.material.status === 'OK' && r.quantities && lastReq) parts.push(`<section class="card" id="toQuote"></section>`);
+  if (r.blank) parts.push(`<section class="card" id="similar"><div class="k">Подобни оферти</div><div class="s">търсене…</div></section>`);
   $('out').innerHTML = parts.join('');
+  if ($('toQuote')) quotePanel(r);
+  if (r.blank) similarPanel(r);
 }
 
-async function post(url, body) {
-  const resp = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
-  return data;
+async function post(url, body) { return CALC.api(url, { json: body }); }
+let lastReq = null;
+
+async function quotePanel(r) {
+  const me = CALC.me;
+  if (!me || !['sales','sales_manager','administrator'].includes(me.role)) { $('toQuote').remove(); return; }
+  const drafts = (await CALC.api('/api/v1/quotations').catch(() => [])).filter(q => q.status === 'draft');
+  const s = lastReq.sales || {};
+  $('toQuote').innerHTML = `<div class="k">Добави към оферта</div><div class="form">
+    <label>Оферта<select id="tqQ"><option value="new">+ нова оферта (BGN)</option>${drafts.map(q => `<option value="${q.id}|${q.version}">${esc(q.number)} v${q.version} · ${esc(q.customer || 'без клиент')} · ${esc(q.currency)}</option>`).join('')}</select></label>
+    <label>Ценообразуване<select id="tqMode"><option value="target_margin_pct">целеви марж %</option><option value="markup_pct">markup %</option><option value="sales_price_per_item">продажна цена/бр.</option></select></label>
+    <label>Стойност<input id="tqVal" inputmode="decimal" value="${esc(s.target_margin_pct || s.sales_price_per_item || s.markup_pct || '')}"></label>
+    <label>Описание (по избор)<input id="tqDesc"></label></div>
+    <p><button id="tqBtn">Добави</button> <span id="tqMsg" class="s"></span></p>`;
+  if (s.sales_price_per_item) $('tqMode').value = 'sales_price_per_item'; else if (s.markup_pct) $('tqMode').value = 'markup_pct';
+  $('tqBtn').onclick = async () => {
+    const val = $('tqVal').value.trim().replace(',', '.');
+    if (!val) { $('tqMsg').textContent = 'Задайте стойност.'; return; }
+    try {
+      let target = $('tqQ').value;
+      if (target === 'new') { const q = await CALC.api('/api/v1/quotations', { json: { currency: 'BGN' } }); target = `${q.quotation_id}|1`; }
+      const [qid, ver] = target.split('|');
+      const req = { ...lastReq }; delete req.sales; delete req.mode;
+      await CALC.api(`/api/v1/quotations/${qid}/versions/${ver}/lines`, { json: { request: req, [$('tqMode').value]: val, description: $('tqDesc').value.trim() || null } });
+      $('tqMsg').innerHTML = `Добавено. <a href="/quotations?id=${qid}&v=${ver}">Към офертата →</a>`;
+    } catch (e) { $('tqMsg').innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; }
+  };
+}
+
+async function similarPanel(r) {
+  const b = lastReq && lastReq.box; if (!b) { $('similar').remove(); return; }
+  const qs = new URLSearchParams({ length_mm: b.length_mm, width_mm: b.width_mm, height_mm: b.height_mm, fefco: r.blank.fefco, dimension_basis: r.blank.dimension_basis });
+  if (r.material.material_code) qs.set('material_code', r.material.material_code);
+  try {
+    const res = await CALC.api('/api/v1/quotation-search?' + qs);
+    const row = x => `<tr><td><a href="/quotations?id=${x.quotation_id}&v=${x.version}">${esc(x.number)} v${x.version}</a></td><td>${esc(x.customer || '—')}</td>
+      <td>${esc(x.material_code || '')}</td><td>${x.quantity}</td><td>${esc(x.unit_sales_price)} ${esc(x.currency)}</td><td>${esc(x.date.slice(0, 10))}</td>
+      <td>${x.match === 'exact' ? '<span class="tag">идентичен</span>' : `<span class="tag">${esc(x.label)}</span> ${esc(x.differences.join(', '))}`}</td></tr>`;
+    const all = [...res.exact, ...res.near];
+    $('similar').innerHTML = `<div class="k">Подобни оферти</div>` + (all.length ? `<div style="overflow-x:auto"><table>${all.slice(0, 10).map(row).join('')}</table></div><div class="s">Допуск: ${esc(res.tolerance)}</div>` : '<div class="s">Няма предишни оферти с тези размери.</div>');
+  } catch (e) { $('similar').remove(); }
 }
 
 async function chat(text) {
@@ -168,6 +214,7 @@ async function chat(text) {
     state = d.state;
     if (d.error) { $('out').innerHTML = `<p class="err">${esc(d.error)}</p>`; return; }
     if (!d.result) { $('out').innerHTML = `<p>${esc(d.explanation.join(' '))}</p><p class="s">${esc(d.parse.notes.join(' '))}</p>`; return; }
+    lastReq = d.state;
     render(d.result, [...d.explanation, ...d.parse.notes].map(esc).join(' '));
     const recent = store.get('recent', []).filter(x => x !== text); recent.unshift(text);
     store.set('recent', recent.slice(0, 10)); showRecent();
@@ -175,6 +222,7 @@ async function chat(text) {
 }
 
 async function calc(req) {
+  lastReq = req;
   try { render(await post('/api/v1/calculate', req)); }
   catch (e) { $('out').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
@@ -204,7 +252,7 @@ function showRecent() {
   [...$('recent').children].forEach(li => li.onclick = () => { state = null; $('q').value = li.textContent; chat(li.textContent); });
 }
 showRecent();
-fetch('/api/v1/health').then(r => r.json()).then(h => { $('ver').textContent = `engine ${h.engine_version}${h.test_data_only ? ' · тестови данни' : ''}`; }).catch(() => {});
+CALC.nav($('nav')).then(() => CALC.api('/api/v1/engine-info')).then(h => { $('ver').textContent = `engine ${h.engine_version}${h.test_data_only ? ' · тестови данни' : ''}`; }).catch(() => {});
 $('q').focus();
 </script>
 </body>

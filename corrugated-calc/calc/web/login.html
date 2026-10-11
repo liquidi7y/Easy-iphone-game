@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход · Калкулатор велпапе</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mut:#5d6672; --line:#dde1e6; --acc:#1f6feb; --err:#cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ee; --mut:#9aa4b0; --line:#2a3038; --acc:#4c8dff; --err:#f85149; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, sans-serif; display:grid; place-items:center; min-height:100vh; padding:16px; }
+  form { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; width:100%; max-width:360px; display:grid; gap:10px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  label { display:grid; gap:4px; font-size:13px; color:var(--mut); }
+  input { font-size:16px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); }
+  button { font-size:16px; padding:10px; border-radius:10px; border:0; background:var(--acc); color:#fff; cursor:pointer; }
+  .err { color:var(--err); min-height:1.2em; font-size:14px; }
+  .mut { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<form id="loginForm">
+  <h1>Калкулатор велпапе</h1>
+  <label>Потребител<input id="u" autocomplete="username" required autofocus></label>
+  <label>Парола<input id="p" type="password" autocomplete="current-password" required></label>
+  <button>Вход</button>
+  <div class="err" id="err"></div>
+</form>
+<form id="changeForm" hidden>
+  <h1>Смяна на паролата</h1>
+  <p class="mut">Задайте нова парола (поне 10 символа), преди да продължите.</p>
+  <label>Текуща парола<input id="cp" type="password" autocomplete="current-password" required></label>
+  <label>Нова парола<input id="np" type="password" autocomplete="new-password" minlength="10" required></label>
+  <label>Повторете<input id="np2" type="password" autocomplete="new-password" minlength="10" required></label>
+  <button>Смени</button>
+  <div class="err" id="err2"></div>
+</form>
+<script>
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const next = (params.get('next') || '/').startsWith('/') && !(params.get('next') || '').startsWith('//') ? (params.get('next') || '/') : '/';
+async function post(url, body) {
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'calc'}, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || r.statusText);
+  return d;
+}
+function showChange() { $('loginForm').hidden = true; $('changeForm').hidden = false; $('cp').focus(); }
+$('loginForm').onsubmit = async e => {
+  e.preventDefault(); $('err').textContent = '';
+  try {
+    const me = await post('/api/v1/auth/login', { username: $('u').value.trim(), password: $('p').value });
+    if (me.must_change_password) { $('cp').value = $('p').value; showChange(); } else location.href = next;
+  } catch (x) { $('err').textContent = x.message; }
+};
+$('changeForm').onsubmit = async e => {
+  e.preventDefault(); $('err2').textContent = '';
+  if ($('np').value !== $('np2').value) { $('err2').textContent = 'Паролите не съвпадат.'; return; }
+  try { await post('/api/v1/auth/change-password', { current_password: $('cp').value, new_password: $('np').value }); location.href = next; }
+  catch (x) { $('err2').textContent = x.message; }
+};
+if (params.get('change')) fetch('/api/v1/me').then(r => r.ok ? showChange() : null);
+</script>
+</body>
+</html>

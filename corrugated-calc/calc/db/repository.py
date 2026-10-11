@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 from ..engine import config as ec
 from ..engine.numbers import clean
 from .audit import audit
-from .models import (BoxStyle, ExchangeRate, FormulaVersion, Material, MaterialAlternative, MaterialPriceTier,
-                     MaterialTag, PriceList, PriceListVersion, PriceTier, RuleVersion, Supplier, User)
+from .models import (BoxStyle, ExchangeRate, FormulaVersion, Material, MaterialAlternative, MaterialOrderRule,
+                     MaterialPriceTier, MaterialTag, PriceList, PriceListVersion, PriceTier, RuleVersion, Supplier, User)
 
 ENGINE_SETTINGS = "engine_settings"
 
@@ -64,7 +64,9 @@ def build_config(s: Session) -> ec.Config:
             company_contract=v.price_list.company_contract, currency=v.currency, price_unit=v.price_unit,
             tax_basis=v.tax_basis, status=v.status, valid_from=v.valid_from.isoformat(),
             valid_to=v.valid_to.isoformat() if v.valid_to else None, tier_basis=v.tier_basis,
-            order_rules=ec.OrderRules(min_order_m2=_c(v.min_order_m2), min_invoiced_m2=_c(v.min_invoiced_m2)),
+            order_rules=ec.OrderRules(min_order_m2=_c(v.min_order_m2), min_invoiced_m2=_c(v.min_invoiced_m2),
+                                      material_min_order_m2={r.material_code: clean(r.min_order_m2)
+                                                             for r in v.material_rules}),
             tiers=[ec.Tier(code=t.code, lower_m2=clean(t.lower_m2), lower_inclusive=t.lower_inclusive,
                            upper_m2=_c(t.upper_m2), upper_inclusive=t.upper_inclusive) for t in v.tiers],
             prices=prices))
@@ -74,10 +76,12 @@ def build_config(s: Session) -> ec.Config:
                      materials=materials, price_lists=price_lists)
 
 
-def ensure_user(s: Session, username: str, role: str, display_name: Optional[str] = None) -> User:
+def ensure_user(s: Session, username: str, role: str, display_name: Optional[str] = None,
+                password_hash: Optional[str] = None, must_change_password: bool = False) -> User:
     u = s.scalar(select(User).where(User.username == username))
     if u is None:
-        u = User(username=username, role=role, display_name=display_name or username)
+        u = User(username=username, role=role, display_name=display_name or username, password_hash=password_hash,
+                 must_change_password=must_change_password)
         s.add(u)
         s.flush()
         audit(s, None, "create", "user", u.id, new={"username": username, "role": role})
@@ -152,6 +156,9 @@ def seed_from_json(s: Session, path: Optional[str | Path] = None, actor: Optiona
             for tcode, price in per_tier.items():
                 s.add(MaterialPriceTier(version_id=v.id, tier_id=tiers[tcode].id, material_code=mcode, price=price,
                                         source_ref={"seed": str(path.name)}))
+        for mcode, mmin in pl.order_rules.material_min_order_m2.items():
+            s.add(MaterialOrderRule(version_id=v.id, material_code=mcode, min_order_m2=mmin,
+                                    source_ref={"seed": str(path.name)}))
         s.flush()
         # draft -> approved -> (active | reference): само разрешени преходи
         v.status = "approved"

@@ -70,6 +70,8 @@ class RoundingSettings(BaseModel):
     mode: str = "ROUND_HALF_UP"
     money_places: int = 2
     unit_cost_min_places: int = 6
+    # офертната единична цена е крайна парична сума: при цена от марж/markup се закръгля веднъж тук
+    quote_unit_price_places: int = 2
 
 
 class BusinessRules(BaseModel):
@@ -161,6 +163,16 @@ class Tier(BaseModel):
 class OrderRules(BaseModel):
     min_order_m2: Optional[Decimal] = None
     min_invoiced_m2: Optional[Decimal] = None
+    # някои материали имат собствен минимум за поръчка (напр. 2000 m²)
+    material_min_order_m2: dict[str, Decimal] = {}
+
+    def min_for(self, code: Optional[str]) -> tuple[Optional[Decimal], bool]:
+        """(минимум, дали е специфичен за материала). Важи по-строгият от общия и материалния."""
+        general = self.min_order_m2
+        specific = self.material_min_order_m2.get(code) if code else None
+        if specific is not None and (general is None or specific >= general):
+            return specific, True
+        return general, False
 
 
 class PriceList(BaseModel):

@@ -90,10 +90,13 @@ class Purchase:
 
 def min_quantity_reaching(purchase: Purchase, tier: Tier, start: int) -> int:
     """Най-малкото цяло количество изделия >= start, чиято закупувана площ достига долната граница на прага."""
+    return min_quantity_reaching_area(purchase, tier.lower_m2, tier.lower_inclusive, start)
 
+
+def min_quantity_reaching_area(purchase: Purchase, threshold: Decimal, inclusive: bool, start: int) -> int:
     def reaches(q: int) -> bool:
         a = purchase.area(q)
-        return a > tier.lower_m2 or (a == tier.lower_m2 and tier.lower_inclusive)
+        return a > threshold or (a == threshold and inclusive)
 
     lo, hi = start, max(start, 1)
     while not reaches(hi):
@@ -119,11 +122,12 @@ class PricedPoint:
 
 
 def price_point(pl: PriceList, code: str, area: Decimal, sheets: int) -> PricedPoint:
-    min_order = pl.order_rules.min_order_m2
+    min_order, specific = pl.order_rules.min_for(code)
     if min_order is not None and area < min_order:
+        which = f"минималната заявка за {code}" if specific else "минималната заявка"
         return PricedPoint("BELOW_MIN_ORDER",
-                           f"Закупуваната площ {clean(area)} m² е под минималната заявка {min_order} m²; "
-                           f"цена под минималния праг не се измисля.", None, None, None)
+                           f"Закупуваната площ {clean(area)} m² е под {which} {clean(min_order)} m²; "
+                           f"под минимума не може да се поръча и цена не се измисля.", None, None, None)
     tier = tier_for_area(pl, area)
     if tier is None:
         return PricedPoint("NO_TIER", f"Няма конфигуриран праг за {clean(area)} m² в {pl.id} v{pl.version}; "
@@ -227,7 +231,9 @@ def optimize_quantity(cfg: Config, code: str, purchase: Purchase, quantity: int,
         target = next((t for t in tiers if pl.prices.get(code, {}).get(t.code) is not None), None)
         if target is None:
             return None
-        q = min_quantity_reaching(purchase, target, quantity)
+        min_order, _ = pl.order_rules.min_for(code)
+        q = max(min_quantity_reaching(purchase, target, quantity),
+                min_quantity_reaching_area(purchase, min_order, True, quantity))
         nxt = price_point(pl, code, purchase.area(q), purchase.sheets(q))
         return OptimizationResult(
             category="MIN_ORDER_REQUIRED", basis=basis,

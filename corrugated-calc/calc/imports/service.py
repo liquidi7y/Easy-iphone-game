@@ -15,8 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db.audit import audit
-from ..db.models import (ImportFile, ImportJob, Material, MaterialPriceTier, PriceList, PriceListVersion, PriceTier,
-                         RuleVersion, Supplier, User)
+from ..db.models import (ImportFile, ImportJob, Material, MaterialOrderRule, MaterialPriceTier, PriceList,
+                         PriceListVersion, PriceTier, RuleVersion, Supplier, User)
 from ..db.repository import ENGINE_SETTINGS
 from ..engine.numbers import clean
 from .extract import FileInfo, detect_kind, extract_files, image_preview_png
@@ -202,6 +202,14 @@ def apply_edits(s: Session, actor: User, job: ImportJob, ops: list[dict[str, Any
             r.prices[op["tier"]] = PField(value=value, raw=f.raw, source=f.source,
                                           status="edited" if value is not None else "missing")
             new = r.prices[op["tier"]].model_dump(mode="json")
+        elif kind == "set_row_min_order":
+            r = _row(p, op["row_id"])
+            old = r.min_order_m2.model_dump(mode="json") if r.min_order_m2 else None
+            value = _user_decimal(op.get("value"), f"{r.id}/мин. заявка")
+            src = r.min_order_m2.source if r.min_order_m2 else None
+            raw = r.min_order_m2.raw if r.min_order_m2 else None
+            r.min_order_m2 = PField(value=value, raw=raw, source=src, status="edited") if value else None
+            new = r.min_order_m2.model_dump(mode="json") if r.min_order_m2 else None
         elif kind == "confirm":
             if "field" in op:
                 if op["field"] not in HEADER_FIELDS:
@@ -366,6 +374,13 @@ def approve_job(s: Session, actor: User, job: ImportJob, acknowledge_warnings: b
                                     price=Decimal(f.value),
                                     source_ref={"import_id": job.id, "row_id": r.id, "raw": f.raw, "status": f.status,
                                                 "source": f.source.model_dump(mode="json") if f.source else None}))
+    for r in p.rows:
+        if r.min_order_m2 is not None and r.min_order_m2.value is not None:
+            s.add(MaterialOrderRule(version_id=v.id, material_code=r.material.value,
+                                    min_order_m2=Decimal(r.min_order_m2.value),
+                                    source_ref={"import_id": job.id, "row_id": r.id, "raw": r.min_order_m2.raw,
+                                                "source": r.min_order_m2.source.model_dump(mode="json")
+                                                if r.min_order_m2.source else None}))
     s.flush()
     v.status = "approved"
     v.approved_by = actor.id
@@ -456,6 +471,10 @@ def draft_from_version(s: Session, actor: User, code: str, version: int) -> Impo
         r = rows.setdefault(mp.material_code, PRow(id=f"r{len(rows) + 1}",
                                                    material=PField(value=mp.material_code, status="confirmed")))
         r.prices[mp.tier.code] = PField(value=str(clean(mp.price)), status="confirmed")
+    for mr in v.material_rules:
+        r = rows.setdefault(mr.material_code, PRow(id=f"r{len(rows) + 1}",
+                                                   material=PField(value=mr.material_code, status="confirmed")))
+        r.min_order_m2 = PField(value=str(clean(mr.min_order_m2)), status="confirmed")
     p.rows = list(rows.values())
     job = ImportJob(status="extracted", price_list_code=code, options={"based_on": {"code": code, "version": version}},
                     extraction={"tables": [], "errors": []}, created_by=actor.id)

@@ -33,6 +33,10 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(32))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(300))
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now()
     __table_args__ = (CheckConstraint(f"role IN {ROLES}", name="ck_users_role"),)
 
@@ -182,6 +186,7 @@ class PriceListVersion(Base):
     tiers: Mapped[list["PriceTier"]] = relationship(lazy="selectin", order_by="PriceTier.sort",
                                                     cascade="all")
     prices: Mapped[list["MaterialPriceTier"]] = relationship(lazy="selectin", cascade="all")
+    material_rules: Mapped[list["MaterialOrderRule"]] = relationship(lazy="selectin", cascade="all")
 
     __table_args__ = (
         UniqueConstraint("price_list_id", "version"),
@@ -256,3 +261,151 @@ class ImportFile(Base):
     content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
     preview_png: Mapped[Optional[bytes]] = mapped_column(LargeBinary, deferred=True)  # HEIC -> PNG
     created_at: Mapped[datetime] = _now()
+
+
+class MaterialOrderRule(Base):
+    """Минимална заявка, специфична за материал в рамките на версия на ценоразпис (напр. 2000 m²)."""
+    __tablename__ = "material_order_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version_id: Mapped[int] = mapped_column(ForeignKey("price_list_versions.id"))
+    material_code: Mapped[str] = mapped_column(ForeignKey("materials.code"))
+    min_order_m2: Mapped[Decimal] = mapped_column(NUM)
+    source_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    __table_args__ = (UniqueConstraint("version_id", "material_code"),
+                      CheckConstraint("min_order_m2 > 0", name="ck_material_min_order"))
+
+
+# ---------------------------------------------------------------- автентикация
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 на token-а
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _now()
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ip: Mapped[Optional[str]] = mapped_column(String(64))
+    user_agent: Mapped[Optional[str]] = mapped_column(String(300))
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ApiToken(Base):
+    """Токен за машинен достъп (ERP). Пази се само hash; стойността се показва веднъж."""
+    __tablename__ = "api_tokens"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(String(100))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    prefix: Mapped[str] = mapped_column(String(16))
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _now()
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+# ---------------------------------------------------------------- клиенти, палети, оферти
+
+class Customer(Base):
+    __tablename__ = "customers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(300))
+    vat_number: Mapped[Optional[str]] = mapped_column(String(32))
+    erp_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True)
+    internal_notes: Mapped[Optional[str]] = mapped_column(Text)  # никога в клиентския изход
+    created_at: Mapped[datetime] = _now()
+
+
+class PalletType(Base):
+    __tablename__ = "pallet_types"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    length_mm: Mapped[int] = mapped_column(Integer)
+    width_mm: Mapped[int] = mapped_column(Integer)
+    description: Mapped[str] = mapped_column(String(300))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    prices: Mapped[list["PalletPrice"]] = relationship(lazy="selectin", order_by="PalletPrice.valid_from")
+
+
+class PalletPrice(Base):
+    """История на покупна и продажна цена; нов запис вместо презаписване."""
+    __tablename__ = "pallet_prices"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pallet_type_id: Mapped[int] = mapped_column(ForeignKey("pallet_types.id"))
+    purchase_price: Mapped[Decimal] = mapped_column(NUM)
+    sales_price: Mapped[Decimal] = mapped_column(NUM)
+    currency: Mapped[str] = mapped_column(String(3))
+    tax_basis: Mapped[str] = mapped_column(String(16), default="excl_vat")
+    valid_from: Mapped[date] = mapped_column(Date)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _now()
+    __table_args__ = (CheckConstraint("purchase_price >= 0 AND sales_price >= 0", name="ck_pallet_prices"),)
+
+
+QUOTATION_STATUSES = ("draft", "final", "sent", "accepted", "rejected", "cancelled")
+
+
+class Quotation(Base):
+    __tablename__ = "quotations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(32), unique=True)
+    customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"))
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _now()
+    customer: Mapped[Optional[Customer]] = relationship(lazy="joined")
+    versions: Mapped[list["QuotationVersion"]] = relationship(lazy="selectin", order_by="QuotationVersion.version")
+
+
+class QuotationVersion(Base):
+    __tablename__ = "quotation_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quotation_id: Mapped[int] = mapped_column(ForeignKey("quotations.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    currency: Mapped[str] = mapped_column(String(3))
+    valid_until: Mapped[Optional[date]] = mapped_column(Date)
+    delivery_terms: Mapped[Optional[str]] = mapped_column(Text)
+    payment_terms: Mapped[Optional[str]] = mapped_column(Text)
+    client_notes: Mapped[Optional[str]] = mapped_column(Text)
+    internal_notes: Mapped[Optional[str]] = mapped_column(Text)
+    based_on_version: Mapped[Optional[int]] = mapped_column(Integer)
+    totals: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = _now()
+    finalized_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    quotation: Mapped[Quotation] = relationship(back_populates="versions")
+    lines: Mapped[list["QuotationLine"]] = relationship(lazy="selectin", order_by="QuotationLine.position",
+                                                       cascade="all, delete-orphan")
+    __table_args__ = (UniqueConstraint("quotation_id", "version"),
+                      CheckConstraint(f"status IN {QUOTATION_STATUSES}", name="ck_qv_status"),
+                      CheckConstraint("currency IN ('BGN','EUR')", name="ck_qv_currency"))
+
+
+class QuotationLine(Base):
+    __tablename__ = "quotation_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version_id: Mapped[int] = mapped_column(ForeignKey("quotation_versions.id"))
+    position: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(16))  # product | pallet
+    description: Mapped[Optional[str]] = mapped_column(String(500))
+    quantity: Mapped[int] = mapped_column(Integer)
+    unit_sales_price: Mapped[Optional[Decimal]] = mapped_column(NUM)
+    unit_cost: Mapped[Optional[Decimal]] = mapped_column(NUM)  # вътрешно: себестойност/покупна цена
+    cost_basis: Mapped[Optional[str]] = mapped_column(String(32))
+    request: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    pallet_type_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pallet_types.id"))
+    # нормализирани ключове за търсене
+    dimension_basis: Mapped[Optional[str]] = mapped_column(String(16))
+    fefco: Mapped[Optional[str]] = mapped_column(String(16))
+    length_mm: Mapped[Optional[int]] = mapped_column(Integer)
+    width_mm: Mapped[Optional[int]] = mapped_column(Integer)
+    height_mm: Mapped[Optional[int]] = mapped_column(Integer)
+    material_code: Mapped[Optional[str]] = mapped_column(String(32))
+    parts: Mapped[int] = mapped_column(Integer, default=1)
+    __table_args__ = (CheckConstraint("kind IN ('product','pallet')", name="ck_ql_kind"),
+                      CheckConstraint("quantity > 0", name="ck_ql_qty"),
+                      Index("ix_ql_search", "fefco", "length_mm", "width_mm", "height_mm"))

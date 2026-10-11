@@ -1,0 +1,108 @@
+{
+  "_comment": "ТЕСТОВИ ДАННИ от заданието (раздел 17). Не са потвърден актуален ценоразпис или спецификация. Не се активират за производство.",
+  "test_data_only": true,
+  "rule_version": "settings-test-v1",
+  "settings": {
+    "defaults": {
+      "unit": "mm",
+      "dimension_basis": "internal",
+      "fefco": "0201",
+      "environment": "dry",
+      "transport": "normal_road",
+      "special_requirements": "none"
+    },
+    "rounding": {
+      "policy_version": "rounding-v1",
+      "mode": "ROUND_HALF_UP",
+      "money_places": 2,
+      "unit_cost_min_places": 6
+    },
+    "allow_reference_prices": true,
+    "size_classes": [
+      {"code": "SMALL", "lower_m3": "0", "lower_inclusive": true, "upper_m3": "0.05", "upper_inclusive": false},
+      {"code": "MEDIUM", "lower_m3": "0.05", "lower_inclusive": true, "upper_m3": "0.20", "upper_inclusive": false},
+      {"code": "LARGE", "lower_m3": "0.20", "lower_inclusive": true, "upper_m3": "0.50", "upper_inclusive": true},
+      {"code": "XL", "lower_m3": "0.50", "lower_inclusive": false, "upper_m3": null, "upper_inclusive": false}
+    ],
+    "quantity_optimization": {
+      "increase_bands_pct": ["3", "7", "15"],
+      "max_increase_pct": "15",
+      "good_effective_price_ratio": "0.75"
+    },
+    "material_upgrade_threshold_pct": "6",
+    "price_import": {"unusual_change_pct": "15"},
+    "business_rules": {
+      "min_margin_pct": null,
+      "min_sales_price": null
+    }
+  },
+  "exchange_rates": [
+    {"from": "EUR", "to": "BGN", "rate": "1.95583", "date": "1999-01-01", "source": "Фиксиран курс BGN/EUR (конфигурация)"}
+  ],
+  "box_styles": {
+    "0201": {
+      "name": "Regular Slotted Container",
+      "formula": "FEFCO_0201",
+      "formula_version": "0201-v1",
+      "status": "pending_technical_confirmation",
+      "additives": {"glue_flap_mm": 40},
+      "additive_overrides": []
+    }
+  },
+  "materials": {
+    "EC3008": {
+      "display_code": "EC3008",
+      "factory_code": "EC3008",
+      "flute": "EC",
+      "layers": 5,
+      "paper_combination": null,
+      "kraft_outer": null,
+      "kraft_inner": null,
+      "grammage_gsm": null,
+      "technical": [],
+      "tags": ["STANDARD", "RECOMMENDED"],
+      "alternatives": [
+        {"code": "EC4027", "type": "SIMILAR", "priority": 1, "technical_equivalence": false}
+      ]
+    },
+    "EC4027": {
+      "display_code": "EC4027",
+      "factory_code": "EC4027",
+      "flute": "EC",
+      "layers": 5,
+      "paper_combination": null,
+      "kraft_outer": null,
+      "kraft_inner": null,
+      "grammage_gsm": null,
+      "technical": [],
+      "tags": ["STANDARD"],
+      "alternatives": [
+        {"code": "EC3008", "type": "SIMILAR", "priority": 1, "technical_equivalence": false}
+      ]
+    }
+  },
+  "price_lists": [
+    {
+      "id": "TEST-SUPPLIER-2026",
+      "version": 1,
+      "supplier": "Тестов доставчик",
+      "company_contract": null,
+      "currency": "BGN",
+      "price_unit": "per_1000m2",
+      "tax_basis": "excl_vat",
+      "status": "reference",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "tier_basis": "purchased_m2_per_order",
+      "order_rules": {"min_order_m2": "1000", "min_invoiced_m2": null, "material_min_order_m2": {}},
+      "tiers": [
+        {"code": "T1", "lower_m2": "1000", "lower_inclusive": true, "upper_m2": "1500", "upper_inclusive": false},
+        {"code": "T2", "lower_m2": "1500", "lower_inclusive": true, "upper_m2": null, "upper_inclusive": false}
+      ],
+      "prices": {
+        "EC3008": {"T1": "1060", "T2": "963"},
+        "EC4027": {"T1": "1003"}
+      }
+    }
+  ]
+}

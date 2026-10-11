@@ -60,7 +60,7 @@ def test_238_to_239():
 
 @pytest.mark.parametrize("area,tier", [
     ("999.999", None), ("1000", "T1"), ("1499.999", "T1"),
-    ("1500", "T2"), ("1999.999", "T2"), ("2000", None),
+    ("1500", "T2"), ("1999.999", "T2"), ("2000", "T2"), ("250000", "T2"),
 ])
 def test_tier_boundaries(area, tier):
     pl = get_config().price_lists[0]
@@ -76,9 +76,35 @@ def test_below_minimum_no_invented_price():
     assert r.optimization.proposed_quantity == 159  # 159 × 6.296568 = 1001.15 m²
 
 
-def test_above_last_tier_not_assumed():
+def test_above_1500_better_price_without_upper_limit():
     r = box(material_code="EC3008", quantity=400)  # 2518.6 m²
+    assert r.material.tier.code == "T2" and r.material.tier.interval == "[1500, ∞)"
+    assert r.optimization.category == "NO_APPLICABLE_NEXT_TIER"
+
+
+def _cfg_copy():
+    return get_config().model_copy(deep=True)
+
+
+def test_closed_last_tier_not_assumed():
+    cfg = _cfg_copy()
+    cfg.price_lists[0].tiers[1].upper_m2 = D("2000")
+    r = calculate(CalculateRequest(box=BOX, material_code="EC3008", quantity=400), cfg)
     assert r.material.status == "NO_TIER" and r.material.total is None
+
+
+def test_material_specific_minimum_2000():
+    """Някои материали се поръчват минимум 2000 m²; общият минимум 1000 m² остава за останалите."""
+    cfg = _cfg_copy()
+    cfg.price_lists[0].order_rules.material_min_order_m2 = {"EC4027": D("2000")}
+    r = calculate(CalculateRequest(box=BOX, material_code="EC4027", quantity=160), cfg)  # 1007 m²
+    assert r.material.status == "BELOW_MIN_ORDER" and "EC4027" in r.material.status_message
+    assert r.material.total is None
+    o = r.optimization
+    assert o.category == "MIN_ORDER_REQUIRED" and o.proposed_quantity == 318  # 318 × 6.296568 = 2002.31 m²
+    assert o.proposed_area_m2 >= D("2000") and D("2000") > 317 * D("6.296568")
+    # EC3008 не е засегнат
+    assert calculate(CalculateRequest(box=BOX, material_code="EC3008", quantity=160), cfg).material.status == "OK"
 
 
 def test_missing_tier_price_not_invented():

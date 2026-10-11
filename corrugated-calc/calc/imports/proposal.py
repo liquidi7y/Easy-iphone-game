@@ -63,6 +63,7 @@ class PRow(BaseModel):
     material_raw: Optional[str] = None
     material: PField
     prices: dict[str, PField] = {}
+    min_order_m2: Optional[PField] = None  # минимум за поръчка, специфичен за материала
     source: Optional[SourceRef] = None
 
 
@@ -70,6 +71,7 @@ class TableMapping(BaseModel):
     table_id: str
     header_row: Optional[int] = None
     code_col: Optional[int] = None
+    min_col: Optional[int] = None  # колона „мин. заявка“ по материал
     tier_cols: dict[str, int] = {}  # tier code -> колона
     skip: bool = False
     auto: bool = True
@@ -104,6 +106,7 @@ HEADER_FIELDS = ("price_list_code", "supplier", "currency", "price_unit", "tax_b
 
 CODE_RE = re.compile(r"^[A-ZА-Я]{1,3}\s?-?\d{2,5}[A-Z]?$")
 CODE_HEADER = re.compile(r"(?i)код|качество|материал|марка|code|grade|quality")
+MIN_HEADER = re.compile(r"(?i)мин|min")
 NUM = r"(\d[\d\s .,]*\d|\d)"
 UNIT = r"\s*(?:м2|m2|м²|m²|кв\.?\s*м\.?|квадрат\w*)?"
 TIER_PATTERNS = [
@@ -176,7 +179,9 @@ def _find_header(table: dict, known: dict[str, set[str]]) -> Optional[TableMappi
         tier_cells = [(c, t) for c, t in tier_cells if t]
         if len(tier_cells) >= 1:
             code_col = next((c["c"] for c in row if CODE_HEADER.search(c["t"])), None)
-            m = TableMapping(table_id=table["id"], header_row=row[0]["r"], code_col=code_col)
+            tier_col_ids = {c["c"] for c, _ in tier_cells}
+            min_col = next((c["c"] for c in row if MIN_HEADER.search(c["t"]) and c["c"] not in tier_col_ids), None)
+            m = TableMapping(table_id=table["id"], header_row=row[0]["r"], code_col=code_col, min_col=min_col)
             m.tier_cols = {f"#{c['c']}": c["c"] for c, _ in tier_cells}
             if code_col is None:
                 m.code_col = _guess_code_col(table, m.header_row, known)
@@ -284,7 +289,8 @@ def build_proposal(extraction: dict[str, Any], known: dict[str, set[str]], optio
         m = manual_maps.get(t["id"]) or _find_header(t, known)
         if m is None and last is not None and last.code_col is not None:
             # продължение на таблица без заглавен ред (следваща страница/снимка)
-            m = TableMapping(table_id=t["id"], header_row=None, code_col=last.code_col, tier_cols=dict(last.tier_cols))
+            m = TableMapping(table_id=t["id"], header_row=None, code_col=last.code_col, tier_cols=dict(last.tier_cols),
+                             min_col=last.min_col)
             p.notes.append(f"{t['label']}: няма заглавен ред; използвани са колоните от предходната таблица.")
         if m is None:
             m = TableMapping(table_id=t["id"], skip=True)
@@ -401,8 +407,15 @@ def build_proposal(extraction: dict[str, Any], known: dict[str, set[str]], optio
                 prices[code] = PField(value=str(pr.value) if pr.value is not None else None, raw=cell["t"],
                                       status=status, source=_src(t, cell), note=pr.note,
                                       candidates=[str(c) for c in pr.candidates])
+            min_field = None
+            min_cell = by_col.get(m.min_col) if m.min_col is not None else None
+            if min_cell is not None:
+                pm = parse_number(min_cell["t"], "dot" if min_cell.get("num") else sep)
+                min_field = PField(value=str(pm.value) if pm.value is not None else None, raw=min_cell["t"],
+                                   status=pm.status if pm.status != "empty" else "missing", source=_src(t, min_cell),
+                                   note=pm.note, candidates=[str(c) for c in pm.candidates])
             p.rows.append(PRow(id=f"r{n}", material_raw=code_cell["t"] if code_cell else None, material=mat,
-                               prices=prices, source=_src(t, code_cell, row[0]["r"])))
+                               prices=prices, min_order_m2=min_field, source=_src(t, code_cell, row[0]["r"])))
 
     # --- ръчно зададени полета от потребителя имат предимство
     for f in HEADER_FIELDS:

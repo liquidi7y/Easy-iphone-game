@@ -139,6 +139,19 @@ def validate_proposal(p: Proposal, known_materials: set[str],
                                      pref))
                 continue
             has_price = True
+        if r.min_order_m2 is not None:
+            mf = r.min_order_m2
+            if mf.status in NEEDS_REVIEW:
+                errors.append(_issue("MIN_ORDER_REVIEW", f"Ред {r.id}: минималната заявка е за уточнение "
+                                                         f"(„{mf.raw}“).", ref))
+            elif mf.value is not None:
+                mv = _dec(mf.value)
+                if mv is None or mv <= 0:
+                    errors.append(_issue("MIN_ORDER_INVALID", f"Ред {r.id}: невалидна минимална заявка.", ref))
+                elif min_order is not None and mv < min_order:
+                    warnings.append(_issue("MATERIAL_MIN_BELOW_GENERAL",
+                                           f"{m.value}: минимумът {mv} m² е под общия {min_order} m²; "
+                                           f"ще важи общият.", ref))
         if not has_price:
             warnings.append(_issue("ROW_WITHOUT_PRICES", f"Ред {r.id} ({m.value}) няма нито една цена.", ref))
         # правдоподобност в рамките на документа (не блокира, изисква потвърждение)

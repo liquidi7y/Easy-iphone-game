@@ -3,7 +3,6 @@
 from decimal import Decimal as D
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 import fixtures_gen as g
@@ -11,12 +10,6 @@ import fixtures_gen as g
 BOX = {"length_mm": 1192, "width_mm": 792, "height_mm": 779}
 MGR = {"X-User": "manager"}
 ADMIN = {"X-User": "admin"}
-
-
-@pytest.fixture()
-def client(db):
-    from calc.api.app import app
-    return TestClient(app)
 
 
 def upload(client, files, code="NEW-SUPPLIER-2026", supplier="Нов доставчик", user=MGR):
@@ -43,7 +36,8 @@ def codes(issues):
 
 
 def calc_total(client, qty=160, code="EC3008"):
-    r = client.post("/api/v1/calculate", json={"box": BOX, "material_code": code, "quantity": qty})
+    r = client.post("/api/v1/calculate", headers={"X-User": "sales"},
+                    json={"box": BOX, "material_code": code, "quantity": qty})
     return r.json()["material"]
 
 
@@ -271,7 +265,7 @@ def test_roles(client):
     r = client.post("/api/v1/imports", headers={"X-User": "sales"}, files=[("files", ("x.csv", g.csv_bytes()))])
     assert r.status_code == 403
     assert client.post("/api/v1/imports", files=[("files", ("x.csv", g.csv_bytes()))]).status_code == 401
-    assert client.get("/api/v1/imports", headers={"X-User": "nobody"}).status_code == 401
+    assert client.get("/api/v1/imports", headers={"X-User-Name": "admin"}).status_code == 401
     r = client.post("/api/v1/price-lists/TEST-SUPPLIER-2026/versions/1/activate", headers=MGR)
     assert r.status_code == 403
 
@@ -309,7 +303,8 @@ def test_corrupt_file_allows_manual_entry(client):
 def test_seeded_db_calculation_matches_acceptance(client):
     m = calc_total(client, 238)
     assert m["total"]["amount"] == "1588.49817504"
-    o = client.post("/api/v1/calculate", json={"box": BOX, "material_code": "EC3008", "quantity": 238}).json()
+    o = client.post("/api/v1/calculate", headers={"X-User": "sales"},
+                    json={"box": BOX, "material_code": "EC3008", "quantity": 238}).json()
     assert o["optimization"]["proposed_total"]["amount"] == "1449.199201176"
 
 

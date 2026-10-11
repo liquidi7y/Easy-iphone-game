@@ -13,8 +13,9 @@
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, sans-serif; }
-  header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--card); }
-  header h1 { font-size:16px; margin:0; } header a { color:var(--acc); }
+  nav.top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--card); font-size:14px; }
+  nav.top a { color:var(--acc); text-decoration:none; } nav.top a[aria-current] { font-weight:600; color:var(--ink); }
+  nav.top .who { margin-left:auto; color:var(--mut); font-size:13px; }
   main { padding:12px 16px; max-width:1500px; margin:0 auto; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
@@ -56,14 +57,7 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>Ценоразписи</h1>
-  <a href="/">← Калкулатор</a>
-  <label style="flex-direction:row;align-items:center;gap:6px">Потребител
-    <input id="user" placeholder="username" style="width:130px"></label>
-  <span id="me" class="mut"></span>
-  <span class="note">Временна идентификация (X-User) до въвеждане на вход с парола/SSO.</span>
-</header>
+<nav class="top" id="nav"></nav>
 <main>
   <section class="card" id="uploadCard">
     <div class="row">
@@ -88,6 +82,7 @@
 
   <section class="card"><b>Версии на ценоразписи</b><div id="lists" class="scroll"></div></section>
 </main>
+<script src="/static/common.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -97,23 +92,13 @@ let job = null, activeTable = null, highlight = null;
 const STATUS_TEXT = { ok:'', missing:'липсва', ambiguous:'двусмислено', unreadable:'нечетливо', low_confidence:'ниска увереност OCR',
                       edited:'коригирано', confirmed:'потвърдено', manual:'ръчно' };
 
-$('user').value = store.get('xuser', '');
-$('user').onchange = () => { store.set('xuser', $('user').value.trim()); init(); };
 
-async function api(path, opts = {}) {
-  const headers = { 'X-User': $('user').value.trim(), ...(opts.json ? {'Content-Type':'application/json'} : {}) };
-  const r = await fetch(path, { method: opts.method || (opts.json || opts.body ? 'POST' : 'GET'), headers,
-                                body: opts.json ? JSON.stringify(opts.json) : opts.body });
-  const ct = r.headers.get('content-type') || '';
-  const data = ct.includes('json') ? await r.json() : null;
-  if (!r.ok) throw new Error(data && data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : r.statusText);
-  return data;
-}
+const api = (path, opts = {}) => CALC.api(path, opts);
 function flash(el, msg, cls='err') { el.innerHTML = `<p class="${cls}">${esc(msg)}</p>`; }
 
 async function init() {
-  try { const me = await api('/api/v1/me'); $('me').textContent = `${me.display_name} · ${me.role}`; }
-  catch (e) { $('me').textContent = e.message; return; }
+  const me = await CALC.nav($('nav'));
+  if (!['sales_manager', 'administrator'].includes(me.role)) $('uploadCard').hidden = true;
   loadJobs(); loadLists();
 }
 
@@ -187,8 +172,7 @@ function renderTabs(tables) {
   [...$('tabs').querySelectorAll('button')].forEach(b => b.onclick = () => { activeTable = b.dataset.t; highlight = null; renderTabs(tables); renderOrig(); });
   [...$('tabs').querySelectorAll('a[data-f]')].forEach(a => a.onclick = async e => {
     e.preventDefault();
-    const r = await fetch(`/api/v1/imports/${job.id}/files/${a.dataset.f}`, { headers: { 'X-User': $('user').value.trim() } });
-    const url = URL.createObjectURL(await r.blob()); window.open(url, '_blank');
+    const url = URL.createObjectURL(await CALC.blob(`/api/v1/imports/${job.id}/files/${a.dataset.f}`)); window.open(url, '_blank');
   });
 }
 
@@ -210,7 +194,7 @@ function renderOrig() {
   const file = job.files.find(f => f.id === t.file_id);
   const src = `/api/v1/imports/${job.id}/files/${t.file_id}/preview${t.page ? '?page=' + t.page : ''}`;
   $('orig').innerHTML = `<div class="imgwrap"><img id="origImg" alt="${esc(file?.filename)}"><div id="box" class="box" hidden></div></div>`;
-  fetch(src, { headers: { 'X-User': $('user').value.trim() } }).then(r => r.blob()).then(b => {
+  CALC.blob(src).then(b => {
     const img = $('origImg'); if (!img) return;
     img.onload = placeBox; img.src = URL.createObjectURL(b);
   });
@@ -276,7 +260,7 @@ function renderTiers(p, open) {
 
 function renderRows(p, open) {
   const tiers = p.tiers || [], dis = open ? '' : 'disabled';
-  $('rows').innerHTML = `<tr><th>Ред</th><th>Материал</th>${tiers.map(t => `<th>${t.code}<br><span class="st">${esc(t.lower.value)}–${esc(t.upper.value || '∞')}</span></th>`).join('')}<th></th></tr>` +
+  $('rows').innerHTML = `<tr><th>Ред</th><th>Материал</th>${tiers.map(t => `<th>${t.code}<br><span class="st">${esc(t.lower.value)}–${esc(t.upper.value || '∞')}</span></th>`).join('')}<th>Мин. заявка m²<br><span class="st">ако е различна от общата</span></th><th></th></tr>` +
     (p.rows || []).map(r => `<tr data-row="${r.id}"><td class="st">${r.id}</td>
       <td class="${r.material.status}" data-mat><input data-mat value="${esc(r.material.value || '')}" ${dis}>
         <div class="st">${esc(STATUS_TEXT[r.material.status] || '')}${r.material.raw && r.material.raw !== r.material.value ? ' · „' + esc(r.material.raw) + '“' : ''}${r.material.note ? ' · ' + esc(r.material.note) : ''}${(r.material.candidates||[]).map(c => ` <button class="sec small" data-mc="${esc(c)}">${esc(c)}</button>`).join('')}</div></td>
@@ -285,6 +269,8 @@ function renderRows(p, open) {
           <div class="st">${esc(STATUS_TEXT[f.status] || '')}${f.raw && f.raw !== f.value ? ' · „' + esc(f.raw) + '“' : ''}${f.source?.conf ? ' · OCR ' + f.source.conf + '%' : ''}
           ${(f.candidates || []).map(c => `<button class="sec small" data-pick="${esc(c)}">${esc(c)}</button>`).join(' ')}
           ${open && f.value && ['low_confidence','ok'].includes(f.status) && f.source ? '<button class="sec small" data-ok>✓</button>' : ''}</div></td>`; }).join('')}
+      <td class="${r.min_order_m2?.status || ''}" data-min><input data-minv value="${esc(r.min_order_m2?.value ?? '')}" placeholder="общата" ${dis}>
+        <div class="st">${r.min_order_m2?.raw ? '„' + esc(r.min_order_m2.raw) + '“' : ''}</div></td>
       <td>${open ? '<button class="sec small" data-rm>×</button>' : ''}</td></tr>`).join('');
   $('rows').querySelectorAll('tr[data-row]').forEach(tr => {
     const id = tr.dataset.row, r = p.rows.find(x => x.id === id);
@@ -298,6 +284,8 @@ function renderRows(p, open) {
       td.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => edit([{ op:'set_price', row_id:id, tier, value:b.dataset.pick }]));
       const ok = td.querySelector('[data-ok]'); if (ok) ok.onclick = () => edit([{ op:'confirm', row_id:id, tier }]);
     });
+    tr.querySelector('input[data-minv]').onchange = e => edit([{ op:'set_row_min_order', row_id:id, value:e.target.value || null }]);
+    tr.querySelector('td[data-min]').onclick = e => { if (e.target.tagName !== 'INPUT') showSource(r.min_order_m2?.source); };
     const rm = tr.querySelector('[data-rm]'); if (rm) rm.onclick = () => edit([{ op:'remove_row', row_id:id }]);
   });
   if (open) $('addRow').onclick = () => edit([{ op:'add_row' }]);

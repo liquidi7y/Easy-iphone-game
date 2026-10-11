@@ -1,9 +1,11 @@
-from fastapi.testclient import TestClient
+import pytest
 
-from calc.api.app import app
 from calc.parser.quick import parse
 
-client = TestClient(app)
+
+@pytest.fixture()
+def client(sales_client):
+    return sales_client
 
 
 def test_parse_examples():
@@ -29,7 +31,7 @@ def test_followups_keep_structured_state():
     assert p.intent == "what_remains" and p.request["sales"] == {"sales_price_per_item": "4.50", "currency": "EUR"}
 
 
-def test_api_calculate_decimals_as_strings():
+def test_api_calculate_decimals_as_strings(client):
     resp = client.post("/api/v1/calculate", json={"box": {"length_mm": 1192, "width_mm": 792, "height_mm": 779},
                                                   "material_code": "EC3008", "quantity": 160})
     assert resp.status_code == 200
@@ -39,13 +41,13 @@ def test_api_calculate_decimals_as_strings():
     assert d["trace"] and d["engine_version"]
 
 
-def test_api_unsupported_fefco_422():
+def test_api_unsupported_fefco_422(client):
     resp = client.post("/api/v1/calculate", json={"box": {"length_mm": 1, "width_mm": 1, "height_mm": 1,
                                                           "fefco": "9999"}, "quantity": 1})
     assert resp.status_code == 422
 
 
-def test_chat_flow_and_economy():
+def test_chat_flow_and_economy(client):
     d = client.post("/api/v1/chat/message", json={"text": "1192/792/779 EC 160"}).json()
     assert d["result"]["material"]["material_code"] == "EC3008"
     d = client.post("/api/v1/chat/message", json={"text": "По-евтиния?", "state": d["state"]}).json()
@@ -54,12 +56,12 @@ def test_chat_flow_and_economy():
     assert d["result"]["sales"]["sales_price_per_item"]["currency"] == "EUR"
 
 
-def test_chat_missing_inputs_no_invented_result():
+def test_chat_missing_inputs_no_invented_result(client):
     d = client.post("/api/v1/chat/message", json={"text": "здравей"}).json()
     assert d["result"] is None and d["parse"]["missing_inputs"]
 
 
-def test_form_works_without_ai():
+def test_form_works_without_ai(client):
     # формата вика директно /calculate; не зависи от chat/LLM
     resp = client.post("/api/v1/calculate", json={"sheet": {"length_mm": 1200, "width_mm": 800},
                                                   "manual_price": {"price": "1060", "unit": "per_1000m2",
@@ -67,5 +69,5 @@ def test_form_works_without_ai():
     assert resp.json()["material"]["cost_per_sheet"]["amount"] == "1.0176"
 
 
-def test_index_served():
+def test_index_served(client):
     assert client.get("/").status_code == 200

@@ -48,11 +48,6 @@ def job_out(job: ImportJob, full: bool = True) -> dict[str, Any]:
     return out
 
 
-@router.get("/me")
-def me(u: User = Depends(current_user)):
-    return {"id": u.id, "username": u.username, "display_name": u.display_name, "role": u.role}
-
-
 # ---------------------------------------------------------------- imports
 
 @router.post("/imports")
@@ -181,6 +176,7 @@ def version_out(v, full=False) -> dict[str, Any]:
         out["tiers"] = [{"code": t.code, "lower_m2": str(clean(t.lower_m2)), "lower_inclusive": t.lower_inclusive,
                          "upper_m2": str(clean(t.upper_m2)) if t.upper_m2 is not None else None,
                          "upper_inclusive": t.upper_inclusive} for t in v.tiers]
+        out["material_min_order_m2"] = {r.material_code: str(clean(r.min_order_m2)) for r in v.material_rules}
         out["prices"] = [{"material_code": p.material_code, "tier": p.tier.code, "price": str(clean(p.price)),
                           "source_ref": p.source_ref} for p in v.prices]
     return out

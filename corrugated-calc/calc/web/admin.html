@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Администриране</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mut:#5d6672; --line:#dde1e6; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --err:#cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ee; --mut:#9aa4b0; --line:#2a3038; --acc:#4c8dff; --ok:#3fb950; --warn:#d29922; --err:#f85149; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, sans-serif; }
+  nav.top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--card); }
+  nav.top a { color:var(--acc); text-decoration:none; } nav.top a[aria-current] { font-weight:600; color:var(--ink); }
+  nav.top .who { margin-left:auto; color:var(--mut); font-size:13px; }
+  main { padding:12px 16px; max-width:1200px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+  label { font-size:12px; color:var(--mut); display:flex; flex-direction:column; gap:2px; max-width:100%; }
+  input, select { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); min-width:0; }
+  button { font:inherit; padding:7px 12px; border-radius:8px; border:0; background:var(--acc); color:#fff; cursor:pointer; }
+  button.sec { background:transparent; color:var(--acc); border:1px solid var(--line); } button.small { padding:2px 8px; font-size:12px; }
+  .scroll { overflow-x:auto; max-width:100%; }
+  table { border-collapse:collapse; width:100%; } td, th { border-bottom:1px solid var(--line); padding:5px 6px; text-align:left; vertical-align:top; }
+  th { font-size:12px; color:var(--mut); }
+  .err { color:var(--err); } .ok { color:var(--ok); } .mut { color:var(--mut); }
+  code.tok { word-break:break-all; background:var(--bg); padding:4px; display:block; }
+</style>
+</head>
+<body>
+<nav class="top" id="nav"></nav>
+<main>
+  <section class="card" id="usersCard" hidden>
+    <b>Потребители</b>
+    <div class="row" style="margin:8px 0">
+      <label>Потребител<input id="uName" placeholder="ivan.petrov"></label><label>Име<input id="uDisp"></label>
+      <label>Роля<select id="uRole"><option value="sales">Търговец</option><option value="sales_manager">Търговски мениджър</option>
+        <option value="technologist">Технолог</option><option value="administrator">Администратор</option><option value="read_only">Само четене</option></select></label>
+      <label>Начална парола (≥10)<input id="uPass" type="password" autocomplete="new-password"></label>
+      <button id="uAdd">Създай</button><span id="uMsg"></span>
+    </div>
+    <div class="scroll"><table id="users"></table></div>
+  </section>
+
+  <section class="card" id="matCard" hidden>
+    <b>Материали</b> <span class="mut">Кодовете не съдържат машинни ограничения. Техническата еквивалентност се одобрява от технолог.</span>
+    <div class="row" style="margin:8px 0">
+      <label>Код<input id="mCode" placeholder="EC3008"></label><label>Display код<input id="mDisp" placeholder="= кода"></label>
+      <label>Фабричен код<input id="mFact"></label><label>Вълна<input id="mFlute" placeholder="EC" style="width:70px"></label>
+      <label>Слоеве<input id="mLayers" type="number" min="1" max="9" style="width:70px"></label>
+      <label>Категории<input id="mTags" placeholder="STANDARD, KRAFT"></label>
+      <button id="mAdd">Добави</button><span id="mMsg"></span>
+    </div>
+    <div class="scroll"><table id="mats"></table></div>
+  </section>
+
+  <section class="card" id="palCard" hidden>
+    <b>Палети</b> <span class="mut">Отделни фактурни позиции. Нова цена се добавя като нов запис; историята се пази.</span>
+    <div class="row" style="margin:8px 0">
+      <label>Код<input id="pCode" placeholder="EUR"></label><label>Дължина<input id="pL" type="number" style="width:90px"></label>
+      <label>Ширина<input id="pW" type="number" style="width:90px"></label><label>Описание<input id="pDesc"></label>
+      <button id="pAdd" class="sec">Нов тип</button>
+    </div>
+    <div class="row" style="margin:8px 0">
+      <label>Тип<select id="ppCode"></select></label><label>Покупна<input id="ppBuy" inputmode="decimal" style="width:100px"></label>
+      <label>Продажна<input id="ppSell" inputmode="decimal" style="width:100px"></label>
+      <label>Валута<select id="ppCcy"><option>BGN</option><option>EUR</option></select></label>
+      <label>В сила от<input id="ppFrom" type="date"></label><button id="ppAdd">Добави цена</button><span id="pMsg"></span>
+    </div>
+    <div class="scroll"><table id="pals"></table></div>
+  </section>
+</main>
+<script src="/static/common.js"></script>
+<script>
+const $ = id => document.getElementById(id), esc = CALC.esc, api = CALC.api;
+const ROLE = { sales:'Търговец', sales_manager:'Търговски мениджър', technologist:'Технолог', administrator:'Администратор', read_only:'Само четене' };
+const msg = (id, text, cls = 'err') => { $(id).innerHTML = `<span class="${cls}">${esc(text)}</span>`; };
+
+async function loadUsers() {
+  const users = await api('/api/v1/users');
+  $('users').innerHTML = '<tr><th>Потребител</th><th>Име</th><th>Роля</th><th>Активен</th><th></th></tr>' + users.map(u => `<tr data-id="${u.id}">
+    <td>${esc(u.username)}${u.must_change_password ? ' <span class=mut>(смяна на парола)</span>' : ''}</td><td>${esc(u.display_name)}</td>
+    <td><select data-role>${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td><input type="checkbox" data-active ${u.active ? 'checked' : ''}></td>
+    <td><button class="sec small" data-reset>Нова парола</button> <button class="sec small" data-token>API токен</button><div data-out></div></td></tr>`).join('');
+  $('users').querySelectorAll('tr[data-id]').forEach(tr => {
+    const id = tr.dataset.id, out = tr.querySelector('[data-out]');
+    const patch = body => api(`/api/v1/users/${id}`, { method: 'PATCH', json: body }).then(loadUsers).catch(e => out.innerHTML = `<span class=err>${esc(e.message)}</span>`);
+    tr.querySelector('[data-role]').onchange = e => patch({ role: e.target.value });
+    tr.querySelector('[data-active]').onchange = e => patch({ active: e.target.checked });
+    tr.querySelector('[data-reset]').onclick = async () => {
+      const pw = prompt('Временна парола (поне 10 символа). Потребителят ще я смени при вход.'); if (!pw) return;
+      try { await api(`/api/v1/users/${id}/reset-password`, { json: { password: pw } }); out.innerHTML = '<span class=ok>Сменена; сесиите са прекратени.</span>'; }
+      catch (e) { out.innerHTML = `<span class=err>${esc(e.message)}</span>`; }
+    };
+    tr.querySelector('[data-token]').onclick = async () => {
+      const name = prompt('Име на токена (напр. ERP)'); if (!name) return;
+      try { const t = await api(`/api/v1/users/${id}/tokens`, { json: { name } });
+            out.innerHTML = `<span class=ok>Копирайте сега — показва се само веднъж:</span><code class="tok">${esc(t.token)}</code>`; }
+      catch (e) { out.innerHTML = `<span class=err>${esc(e.message)}</span>`; }
+    };
+  });
+}
+$('uAdd').onclick = async () => {
+  try { await api('/api/v1/users', { json: { username: $('uName').value.trim(), display_name: $('uDisp').value.trim(), role: $('uRole').value, password: $('uPass').value } });
+        $('uPass').value = ''; msg('uMsg', 'Създаден; ще смени паролата при първи вход.', 'ok'); loadUsers(); }
+  catch (e) { msg('uMsg', e.message); }
+};
+
+async function loadMaterials() {
+  const mats = await api('/api/v1/materials');
+  $('mats').innerHTML = '<tr><th>Код</th><th>Display</th><th>Вълна</th><th>Категории</th><th>Алтернативи</th><th>Техн. данни</th></tr>' + mats.map(m => `<tr>
+    <td>${esc(m.code)}</td><td>${esc(m.display_code)}</td><td>${esc(m.flute)}</td><td>${esc(m.tags.join(', '))}</td>
+    <td>${m.alternatives.map(a => `${esc(a.code)} (${esc(a.type)}${a.technical_equivalence ? ', еквив.: ' + esc(a.equivalence_conditions) : ''})`).join('<br>') || '—'}</td>
+    <td>${m.technical.map(t => `${esc(t.name)} ${esc(t.value)} ${esc(t.unit)}`).join('<br>') || '<span class=mut>няма</span>'}</td></tr>`).join('');
+}
+$('mAdd').onclick = async () => {
+  try { await api('/api/v1/materials', { json: { code: $('mCode').value.trim().toUpperCase(), display_code: $('mDisp').value.trim() || null,
+          factory_code: $('mFact').value.trim() || null, flute: $('mFlute').value.trim().toUpperCase(), layers: +$('mLayers').value || null,
+          tags: $('mTags').value.split(',').map(x => x.trim().toUpperCase()).filter(Boolean) } });
+        msg('mMsg', 'Добавен.', 'ok'); loadMaterials(); }
+  catch (e) { msg('mMsg', e.message); }
+};
+
+async function loadPallets() {
+  const pals = await api('/api/v1/pallet-types');
+  $('ppCode').innerHTML = pals.map(p => `<option>${esc(p.code)}</option>`).join('');
+  $('pals').innerHTML = '<tr><th>Код</th><th>Размер</th><th>Описание</th><th>Покупна</th><th>Продажна</th><th>История</th></tr>' + pals.map(p => `<tr>
+    <td>${esc(p.code)}</td><td>${p.length_mm}×${p.width_mm}</td><td>${esc(p.description)}</td><td>${esc(p.purchase_price ?? '—')} ${esc(p.currency || '')}</td>
+    <td>${esc(p.sales_price ?? '—')} ${esc(p.currency || '')}</td><td class=mut>${(p.price_history || []).map(h => `${esc(h.valid_from)}: ${esc(h.purchase_price)} / ${esc(h.sales_price)} ${esc(h.currency)}`).join('<br>')}</td></tr>`).join('');
+}
+$('pAdd').onclick = async () => {
+  try { await api('/api/v1/pallet-types', { json: { code: $('pCode').value.trim(), length_mm: +$('pL').value, width_mm: +$('pW').value, description: $('pDesc').value.trim() } });
+        msg('pMsg', 'Добавен тип.', 'ok'); loadPallets(); } catch (e) { msg('pMsg', e.message); }
+};
+$('ppAdd').onclick = async () => {
+  try { await api(`/api/v1/pallet-types/${encodeURIComponent($('ppCode').value)}/prices`, { json: { purchase_price: $('ppBuy').value.replace(',', '.'),
+          sales_price: $('ppSell').value.replace(',', '.'), currency: $('ppCcy').value, valid_from: $('ppFrom').value } });
+        msg('pMsg', 'Цената е добавена.', 'ok'); loadPallets(); } catch (e) { msg('pMsg', e.message); }
+};
+
+(async () => {
+  const me = await CALC.nav($('nav'));
+  if (me.role === 'administrator') { $('usersCard').hidden = false; loadUsers(); }
+  if (['technologist', 'administrator'].includes(me.role)) { $('matCard').hidden = false; loadMaterials(); }
+  if (['sales_manager', 'administrator'].includes(me.role)) { $('palCard').hidden = false; loadPallets(); }
+  $('ppFrom').value = new Date().toISOString().slice(0, 10);
+})();
+</script>
+</body>
+</html>

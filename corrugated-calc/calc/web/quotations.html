@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Оферти</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mut:#5d6672; --line:#dde1e6; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --err:#cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ee; --mut:#9aa4b0; --line:#2a3038; --acc:#4c8dff; --ok:#3fb950; --warn:#d29922; --err:#f85149; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, sans-serif; }
+  nav.top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--card); }
+  nav.top a { color:var(--acc); text-decoration:none; } nav.top a[aria-current] { font-weight:600; color:var(--ink); }
+  nav.top .who { margin-left:auto; color:var(--mut); font-size:13px; }
+  main { padding:12px 16px; max-width:1200px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+  label { font-size:12px; color:var(--mut); display:flex; flex-direction:column; gap:2px; max-width:100%; }
+  input, select, textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); min-width:0; }
+  textarea { min-height:52px; }
+  button { font:inherit; padding:7px 12px; border-radius:8px; border:0; background:var(--acc); color:#fff; cursor:pointer; }
+  button.sec { background:transparent; color:var(--acc); border:1px solid var(--line); }
+  button.small { padding:2px 8px; font-size:12px; }
+  .scroll { overflow-x:auto; max-width:100%; }
+  table { border-collapse:collapse; width:100%; }
+  td, th { border-bottom:1px solid var(--line); padding:5px 6px; text-align:left; vertical-align:top; }
+  th { font-size:12px; color:var(--mut); font-weight:600; }
+  .n { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; padding:0 7px; border-radius:99px; border:1px solid var(--line); font-size:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; }
+  .k { color:var(--mut); font-size:12px; } .v { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .mut { color:var(--mut); } .err { color:var(--err); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+  .internal { border-left:3px solid var(--warn); padding-left:8px; }
+  tr.click { cursor:pointer; } tr.click:hover td { background:var(--bg); }
+</style>
+</head>
+<body>
+<nav class="top" id="nav"></nav>
+<main>
+  <section class="card" id="newCard">
+    <b>Нова оферта</b>
+    <div class="row" style="margin-top:6px">
+      <label>Клиент<input id="custQ" list="custList" placeholder="търсене по име / ЕИК"></label>
+      <datalist id="custList"></datalist>
+      <label>Валута<select id="ccy"><option>BGN</option><option>EUR</option></select></label>
+      <label>Валидна до<input id="validUntil" type="date"></label>
+      <button id="createBtn">Създай</button>
+      <button id="newCustBtn" class="sec">+ Нов клиент</button>
+    </div>
+    <div id="newCust" hidden class="row" style="margin-top:8px">
+      <label>Име<input id="ncName"></label><label>ЕИК/ДДС №<input id="ncVat"></label>
+      <label>Вътрешна бележка (не отива при клиента)<input id="ncNote" style="min-width:260px"></label>
+      <button id="ncSave" class="sec">Запиши клиент</button>
+    </div>
+    <div id="newMsg"></div>
+  </section>
+
+  <section id="quote"></section>
+
+  <section class="card">
+    <div class="row" style="justify-content:space-between"><b>Оферти</b>
+      <label style="flex-direction:row;align-items:center;gap:6px">Клиент <select id="filterCust"><option value="">всички</option></select></label></div>
+    <div class="scroll"><table id="list"></table></div>
+  </section>
+</main>
+<script src="/static/common.js"></script>
+<script>
+const $ = id => document.getElementById(id), esc = CALC.esc, api = CALC.api;
+let customers = [], cur = null, me = null, pallets = [];
+const STATUS = { draft:'чернова', final:'финализирана', sent:'изпратена', accepted:'приета', rejected:'отказана', cancelled:'анулирана' };
+const money = m => m ? `${esc(m.rounded)}` : '—';
+const fmt = (x, d = 2) => x == null ? '—' : Number(x).toLocaleString('bg-BG', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+async function loadCustomers() {
+  customers = await api('/api/v1/customers');
+  $('custList').innerHTML = customers.map(c => `<option value="${esc(c.name)}">${esc(c.vat_number || '')}</option>`).join('');
+  $('filterCust').innerHTML = '<option value="">всички</option>' + customers.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+}
+async function loadList() {
+  const cid = $('filterCust').value;
+  const rows = await api('/api/v1/quotations' + (cid ? '?customer_id=' + cid : ''));
+  $('list').innerHTML = '<tr><th>№</th><th>Клиент</th><th>Версия</th><th>Статус</th><th class=n>Сума</th><th>Създадена</th></tr>' +
+    rows.map(r => `<tr class="click" data-id="${r.id}" data-v="${r.version}"><td>${esc(r.number)}</td><td>${esc(r.customer || '—')}</td><td>v${r.version}</td>
+      <td><span class="badge">${STATUS[r.status] || r.status}</span></td><td class=n>${r.deal_total ? esc(r.deal_total.rounded) + ' ' + esc(r.currency) : '<span class=mut>чернова</span>'}</td>
+      <td>${esc((r.created_at || '').slice(0, 10))}</td></tr>`).join('');
+  [...$('list').querySelectorAll('tr[data-id]')].forEach(tr => tr.onclick = () => open(+tr.dataset.id, +tr.dataset.v));
+}
+$('filterCust').onchange = loadList;
+$('newCustBtn').onclick = () => { $('newCust').hidden = !$('newCust').hidden; };
+$('ncSave').onclick = async () => {
+  try { const c = await api('/api/v1/customers', { json: { name: $('ncName').value.trim(), vat_number: $('ncVat').value.trim() || null, internal_notes: $('ncNote').value.trim() || null } });
+        await loadCustomers(); $('custQ').value = c.name; $('newCust').hidden = true; }
+  catch (e) { $('newMsg').innerHTML = `<p class=err>${esc(e.message)}</p>`; }
+};
+$('createBtn').onclick = async () => {
+  const name = $('custQ').value.trim(), c = customers.find(x => x.name === name);
+  if (name && !c) { $('newMsg').innerHTML = '<p class=err>Изберете клиент от списъка или го създайте.</p>'; return; }
+  try { const v = await api('/api/v1/quotations', { json: { customer_id: c ? c.id : null, currency: $('ccy').value, valid_until: $('validUntil').value || null } });
+        await loadList(); render(v); }
+  catch (e) { $('newMsg').innerHTML = `<p class=err>${esc(e.message)}</p>`; }
+};
+
+async function open(id, ver) { render(await api(`/api/v1/quotations/${id}/versions/${ver}`)); $('quote').scrollIntoView({ behavior:'smooth' }); }
+
+function render(v, note) {
+  cur = v;
+  const draft = v.status === 'draft', canEdit = ['sales','sales_manager','administrator'].includes(me.role);
+  const t = v.totals || {}, base = `/api/v1/quotations/${v.quotation_id}/versions/${v.version}`;
+  const lines = v.lines.map(l => {
+    const lt = (t.lines || []).find(x => x.line_id === l.id) || {};
+    return `<tr><td>${l.position}</td><td>${esc(l.description)}${l.kind === 'product' && l.result ? `<br><span class=mut>${esc(l.result.material?.source?.label || '')} · праг ${esc(l.result.material?.tier?.code || '—')}</span>` : ''}</td>
+      <td class=n>${l.quantity}</td><td class=n>${fmt(l.unit_sales_price, 4)}</td><td class="n internal">${fmt(l.unit_cost, 4)}</td>
+      <td class="n">${money(lt.sales_total)}</td><td class="n internal">${lt.margin_percent != null ? fmt(lt.margin_percent, 1) + '%' : '—'}</td>
+      <td>${draft && canEdit ? `<button class="sec small" data-del="${l.id}">×</button>` : ''}</td></tr>`;
+  }).join('');
+  const versions = v.versions.map(x => `<button class="small ${x.version === v.version ? '' : 'sec'}" data-ver="${x.version}">v${x.version} · ${STATUS[x.status] || x.status}</button>`).join(' ');
+  $('quote').innerHTML = `
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div><b style="font-size:16px">${esc(v.number)}</b> · ${esc(v.customer?.name || 'без клиент')} · <span class="badge">${STATUS[v.status] || v.status}</span>
+        ${v.based_on_version ? `<span class=mut> · на база v${v.based_on_version}</span>` : ''}</div>
+      <div>${versions}</div>
+    </div>
+    ${v.customer?.internal_notes ? `<p class="internal warn">Вътрешна бележка за клиента: ${esc(v.customer.internal_notes)}</p>` : ''}
+    ${note ? `<p class=ok>${note}</p>` : ''}
+    <div class="row" style="margin-top:8px">
+      <label>Валута<select id="hCcy" ${draft ? '' : 'disabled'}><option ${v.currency === 'BGN' ? 'selected' : ''}>BGN</option><option ${v.currency === 'EUR' ? 'selected' : ''}>EUR</option></select></label>
+      <label>Валидна до<input id="hValid" type="date" value="${esc(v.valid_until || '')}" ${draft ? '' : 'disabled'}></label>
+      <label style="flex:1">Доставка<input id="hDelivery" value="${esc(v.delivery_terms || '')}" ${draft ? '' : 'disabled'}></label>
+      <label style="flex:1">Плащане<input id="hPayment" value="${esc(v.payment_terms || '')}" ${draft ? '' : 'disabled'}></label>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label style="flex:1">Бележки към клиента<textarea id="hClient" ${draft ? '' : 'disabled'}>${esc(v.client_notes || '')}</textarea></label>
+      <label style="flex:1" class="internal">Вътрешни бележки (не отиват при клиента)<textarea id="hInternal" ${draft ? '' : 'disabled'}>${esc(v.internal_notes || '')}</textarea></label>
+    </div>
+    ${draft && canEdit ? '<p><button class="sec small" id="saveHdr">Запиши заглавието</button></p>' : ''}
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><b>Позиции</b><span class="mut">Продажни цени без ДДС, ${esc(v.currency)}. Жълтата граница = вътрешни данни.</span></div>
+    <div class="scroll"><table><tr><th>№</th><th>Описание</th><th class=n>Брой</th><th class=n>Ед. цена</th><th class="n">Себест./бр.</th><th class=n>Сума</th><th class=n>Марж</th><th></th></tr>${lines || '<tr><td colspan=8 class=mut>Няма позиции. Добавете от калкулатора („Добави към оферта“).</td></tr>'}</table></div>
+    ${draft && canEdit ? `<div class="row" style="margin-top:8px">
+      <label>Палет<select id="palCode">${pallets.filter(p => p.active && p.sales_price).map(p => `<option value="${esc(p.code)}">${esc(p.code)} · ${esc(p.description)} · ${esc(p.sales_price)} ${esc(p.currency)}</option>`).join('')}</select></label>
+      <label>Брой<input id="palCount" type="number" min="1" value="1" style="width:80px"></label>
+      <label>Ед. продажна цена (по избор)<input id="palPrice" inputmode="decimal" placeholder="от ценоразписа" style="width:140px"></label>
+      <button class="sec" id="addPal">+ Палети</button></div>` : ''}
+  </div>
+  <div class="card grid">
+    <div><div class="k">Кашони — продажби</div><div class="v">${money(t.products?.sales)} ${esc(v.currency)}</div>
+      <div class="mut internal">себест. ${money(t.products?.cost)} · резултат ${money(t.products?.profit)} · ${esc(t.products?.cost_basis_label || '')}: ${t.products?.margin_percent != null ? fmt(t.products.margin_percent, 2) + '%' : '—'} · markup ${t.products?.markup_percent != null ? fmt(t.products.markup_percent, 2) + '%' : '—'}</div></div>
+    <div><div class="k">Палети — продажби</div><div class="v">${money(t.pallets?.sales)} ${esc(v.currency)}</div>
+      <div class="mut internal">покупна ${money(t.pallets?.cost)} · резултат ${money(t.pallets?.profit)}</div></div>
+    <div><div class="k">Обща стойност на сделката</div><div class="v">${money(t.deal_total)} ${esc(v.currency)}</div>
+      <div class="mut">${(t.business_warnings || []).map(w => `<span class=warn>${esc(w)}</span>`).join('<br>')}</div></div>
+  </div>
+  <div class="card row" id="actions">
+    ${draft && canEdit ? '<button id="finBtn">Финализирай</button><button class="sec" id="recalcBtn">Преизчисли по текущите цени</button><button class="sec" id="cancelBtn">Анулирай</button>' : ''}
+    ${!draft && canEdit ? '<button class="sec" id="newVerBtn">Нова версия за редакция</button>' : ''}
+    ${v.status === 'final' && canEdit ? '<button id="sentBtn">Маркирай като изпратена</button>' : ''}
+    ${['final','sent'].includes(v.status) && canEdit ? '<button class="sec" id="accBtn">Приета</button><button class="sec" id="rejBtn">Отказана</button>' : ''}
+    <a href="/quotations/${v.quotation_id}/v/${v.version}/print" target="_blank" rel="noopener"><button class="sec" type="button">Клиентски изглед / печат</button></a>
+    <span id="actMsg"></span>
+  </div>
+  <div class="card" id="hist"></div>`;
+
+  $('quote').querySelectorAll('[data-ver]').forEach(b => b.onclick = () => open(v.quotation_id, +b.dataset.ver));
+  $('quote').querySelectorAll('[data-del]').forEach(b => b.onclick = () => act(() => api(`${base}/lines/${b.dataset.del}`, { method: 'DELETE' })));
+  const on = (id, fn) => { if ($(id)) $(id).onclick = fn; };
+  on('saveHdr', () => act(() => api(base, { method: 'PATCH', json: { currency: $('hCcy').value, valid_until: $('hValid').value || null,
+      delivery_terms: $('hDelivery').value || null, payment_terms: $('hPayment').value || null, client_notes: $('hClient').value || null, internal_notes: $('hInternal').value || null } }), 'Записано.'));
+  on('addPal', () => act(() => api(`${base}/pallets`, { json: { pallet_code: $('palCode').value, count: +$('palCount').value, unit_sales_price: $('palPrice').value.replace(',', '.') || null } })));
+  on('finBtn', () => confirm('Финализиране? След това версията не може да се променя.') && act(() => api(`${base}/finalize`, { json: {} }), 'Финализирана: цените, правилата и ценоразписът са замразени.'));
+  on('recalcBtn', async () => { try { const r = await api(`${base}/recalculate`, { json: {} });
+      render(r, r.changes.length ? `Преизчислени ${r.changes.length} позиции: ` + r.changes.map(c => `№${c.position}: ${c.old.unit_cost} → ${c.new.unit_cost}`).join('; ') : 'Няма промени спрямо текущите цени.'); }
+      catch (e) { $('actMsg').innerHTML = `<span class=err>${esc(e.message)}</span>`; } });
+  on('newVerBtn', () => act(() => api(`${base}/new-version`, { json: {} }), 'Създадена нова версия с непроменени цени. Преизчисляването е отделно действие.'));
+  on('sentBtn', () => act(() => api(`${base}/status`, { json: { status: 'sent' } })));
+  on('accBtn', () => act(() => api(`${base}/status`, { json: { status: 'accepted' } })));
+  on('rejBtn', () => act(() => api(`${base}/status`, { json: { status: 'rejected' } })));
+  on('cancelBtn', () => confirm('Анулиране на черновата?') && act(() => api(`${base}/status`, { json: { status: 'cancelled' } })));
+  if (v.customer) api(`/api/v1/customers/${v.customer.id}/history`).then(h => {
+    $('hist').innerHTML = `<b>История на клиента</b><div class="scroll"><table><tr><th>Оферта</th><th>Дата</th><th>Описание</th><th class=n>Брой</th><th class=n>Ед. цена</th></tr>` +
+      h.map(x => `<tr><td>${esc(x.number)} v${x.version} <span class=badge>${STATUS[x.status] || x.status}</span></td><td>${esc((x.date || '').slice(0, 10))}</td><td>${esc(x.description)}</td><td class=n>${x.quantity}</td><td class=n>${fmt(x.unit_sales_price, 4)} ${esc(x.currency)}</td></tr>`).join('') + '</table></div>';
+  }).catch(() => {}); else $('hist').hidden = true;
+}
+
+async function act(fn, note) {
+  try { const v = await fn(); render(v, note); loadList(); }
+  catch (e) { $('actMsg') ? $('actMsg').innerHTML = `<span class=err>${esc(e.message)}</span>` : alert(e.message); }
+}
+
+(async () => {
+  me = await CALC.nav($('nav'));
+  if (!['sales','sales_manager','administrator'].includes(me.role)) $('newCard').hidden = true;
+  pallets = await api('/api/v1/pallet-types').catch(() => []);
+  await loadCustomers(); await loadList();
+  const p = new URLSearchParams(location.search);
+  if (p.get('id')) open(+p.get('id'), +(p.get('v') || 1));
+})();
+</script>
+</body>
+</html>
